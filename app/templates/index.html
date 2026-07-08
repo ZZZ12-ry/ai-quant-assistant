@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI??????</title>
+<style>{{CSS}}</style>
+</head>
+<body>
+<div class="app">
+<div class="left">
+<div class="hdr">AI????
+<button class="settings-btn" onclick="showSettings()">??</button>
+</div>
+<div class="chat" id="chat"></div>
+<div class="inp">
+<textarea id="inp" placeholder="???????????..."></textarea>
+<button id="sendBtn" onclick="send()">??</button>
+</div>
+</div>
+<div class="right">
+<div class="hdr">
+<select id="strategySelect" onchange="switchStrategy(this.value)"><option>???</option></select>
+</div>
+<div class="stages" id="stageBar">
+<div class="stage active" onclick="switchStage(1)" id="st1">1 ????</div>
+<div class="stage" onclick="switchStage(2)" id="st2">2 ??</div>
+<div class="stage" onclick="switchStage(3)" id="st3">3 ??</div>
+<div class="stage" onclick="switchStage(4)" id="st4">4 ??</div>
+<div class="stage" onclick="switchStage(5)" id="st5">5 ??</div>
+</div>
+<div class="body" id="body">
+<p>?????</p>
+</div>
+</div>
+</div>
+<div class="modal" id="settingsModal"><div class="modal-box">
+<button class="modal-close" onclick="closeSettings()">&times;</button>
+<h3>API ??</h3>
+<input type="password" id="apiKeyInput" placeholder="sk-...">
+<button class="btn" onclick="saveSettings()">??</button>
+</div></div>
+<script>{{JS}}</script>
+</body>
+</html>

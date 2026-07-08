@@ -1,0 +1,246 @@
+# knowledge_base_design.yaml v1 — 目录结构+文档模板+检索策略
+version: v1
+updated: '2026-06-08'
+designer: AI策略顾问
+overview: '本知识库为期货CTA策略开发平台的RAG系统设计。当前平台没有向量数据库，设计采用渐进式策略：先从关键词匹配的简单版本起步，后续升级到混合检索。
+
+
+  知识库总体结构分为四大模块：
+
+  1. factor_store/ — 因子商店，每个因子一个文档
+
+  2. strategy_templates/ — 策略模板库，每个历史上线策略一个文档
+
+  3. trading_rules/ — 交易规则库，按交易所/品种分类
+
+  4. research/ — 投研知识库，非结构化文本
+
+
+  所有文档使用YAML格式，便于结构化检索和版本管理。'
+directory_structure:
+  base_path: data/knowledge/
+  factor_store:
+    path: factor_store/
+    format: YAML
+    naming: '{factor_name}.yaml'
+    inventory_file: index.yaml
+    description: 每个因子一个文件，含计算逻辑、IC/IR历史表现、适用品种
+  strategy_templates:
+    path: strategy_templates/
+    format: YAML
+    naming: '{strategy_name}_{strategy_type}.yaml'
+    inventory_file: index.yaml
+    description: 每个历史上线策略一个文件，含核心逻辑、参数范围、历史绩效
+  trading_rules:
+    path: trading_rules/
+    format: YAML
+    naming: '{exchange_code}_rules.yaml'
+    inventory_file: null
+    description: 按交易所分类，每个交易所一个文件，含品种明细、保证金、交易时间
+  research:
+    path: research/
+    format: Markdown + YAML frontmatter
+    naming: '{YYYY-MM-DD}_{topic_slug}.md'
+    inventory_file: index.yaml
+    description: 投研报告、复盘笔记，非结构化文本，需要分块
+doc_templates:
+  factor_template:
+    path: factor_store/_template.yaml
+    fields:
+      factor_name: str — 因子唯一名称
+      category: str — 分类：动量/反转/波动率/流动性/价值/其他
+      computation:
+        formula: str — 数学公式
+        python_impl: str — Python计算逻辑
+        parameters: list — [参数名, 默认值, 范围, 含义]
+      applicable_symbols: list — 适用品种代码列表
+      performance:
+        ic_mean: float — IC均值
+        ic_ir: float — IC-IR
+        ic_std: float — IC标准差
+        decay: int — IC衰减期数
+        backtest_period: str — 回测区间
+      drawdown_periods: list — [起止时间, 回撤幅度, 原因]
+      notes: str — 使用注意事项
+    example:
+      factor_name: momentum_20d
+      category: 动量
+      computation:
+        formula: close(t)/close(t-20) - 1
+        python_impl: df["ret_20d"] = df["close"] / df["close"].shift(20) - 1
+        parameters:
+        - - period
+          - 20
+          - 5-60
+          - 动量计算周期
+      applicable_symbols:
+      - RB
+      - HC
+      - I
+      performance:
+        ic_mean: 0.035
+        ic_ir: 0.62
+        ic_std: 0.056
+        decay: 3
+        backtest_period: 2020-2026
+      drawdown_periods:
+      - - 2024-06
+        - 2024-08
+        - -0.45
+        - 趋势反转行情
+      notes: 在震荡行情中IC显著下降
+  strategy_template:
+    path: strategy_templates/_template.yaml
+    fields:
+      strategy_name: str — 策略名称
+      strategy_type: enum — trend/arbitrage/reversal/market_making
+      core_logic: str — 核心逻辑描述
+      parameters: list — [参数名, 默认值, 范围, 类型]
+      applicable_symbols: list — 适用品种
+      timeframe: str — 交易频率：日线/小时/分钟
+      historical_performance:
+        annual_return: float
+        max_drawdown: float
+        sharpe_ratio: float
+        win_rate: float
+        backtest_period: str
+      status: enum — online/offline/under_review
+      notes: str — 策略特点、已知问题
+    example:
+      strategy_name: EXPMA金叉趋势跟踪
+      strategy_type: trend
+      core_logic: 短期EXPMA上穿长期EXPMA做多，下穿做空
+      parameters:
+      - - short_period
+        - 10
+        - 5-30
+        - int
+      - - long_period
+        - 30
+        - 20-60
+        - int
+      - - stop_loss_pct
+        - 0.05
+        - 0.02-0.10
+        - float
+      applicable_symbols:
+      - RB
+      - HC
+      - I
+      - M
+      timeframe: 日线
+      historical_performance:
+        annual_return: 0.18
+        max_drawdown: -0.22
+        sharpe_ratio: 1.2
+        win_rate: 0.42
+        backtest_period: 2020-2026
+      status: online
+      notes: 震荡市中回撤较大，建议结合过滤条件
+  trading_rules_template:
+    path: trading_rules/_template.yaml
+    fields:
+      exchange_name: str — 交易所名称
+      exchange_code: str — 交易所代码
+      trading_hours:
+        day: str — 日盘交易时间
+        night: str — 夜盘交易时间
+      margin_rules: list — 逐级保证金规则
+      price_limits: str — 涨跌停板规则
+      symbols: list — [{code, name, multiplier, tick_size, commission_rate, margin_rate}]
+      delivery_rules: str — 交割规则
+      position_limits: str — 限仓规则
+      notes: str — 特殊注意事项
+  research_template:
+    path: research/_template.md
+    frontmatter_fields:
+      title: str
+      date: YYYY-MM-DD
+      author: str
+      tags: list — 标签
+      related_symbols: list — 相关品种
+      type: enum — research/note/review
+    content_guidelines: '正文使用Markdown格式，每个段落应独立成块。
+
+      重要数值（收益率、回撤、夏普等）使用 **加粗** 标注。
+
+      关键结论放在段落开头。'
+retrieval_strategy:
+  phase_1_keyword:
+    description: 初期使用关键词匹配检索，不需要向量数据库
+    implementation: '在 PromptManager 中增加知识库检索方法:
+
+      1. _search_knowledge(query: str) -> str
+
+      2. 遍历 knowledge/ 下所有YAML文件
+
+      3. 对每个文件做关键词匹配（简单字符串匹配）
+
+      4. 匹配到关键词的段落/字段被拼接为上下文文本
+
+      5. 返回匹配到的内容作为附加上下文
+
+
+      具体实现步骤:
+
+      a. 在 PromptManager.__init__ 中预加载所有YAML到内存
+
+      b. 对用户输入的query分词（简单按空格/标点切分）
+
+      c. 对每个YAML文件的每个字段做 contains 匹配
+
+      d. 返回匹配度最高的前5个文档的摘要内容
+
+      e. 在 get_stage_prompt() 末尾追加检索结果'
+    limitations: '1. 同义词无法匹配（"螺纹钢"vs"RB"不会匹配）
+
+      2. 跨文档关联能力弱
+
+      3. 长文档中只有部分段落相关时无法精确截取'
+  phase_2_hybrid:
+    description: 引入轻量级向量数据库，实现混合检索
+    vector_db_options: '推荐方案（按从简到繁排序）：
+
+      1. ChromaDB（嵌入式，无服务器依赖，适合小规模）
+
+      2. FAISS（纯向量检索，需要自己管理index）
+
+      3. pgvector（如果已经用PostgreSQL）'
+    embedding_options: 推荐使用 DeepSeek 的 embedding 模型（text-embedding-ada-002 类似），对每个文档/段落生成向量，存储到向量数据库中。
+    retrieval_flow: '1. 用户输入 → 向量化 → 向量检索（top-K=10）
+
+      2. 同时做关键词检索（top-K=5）
+
+      3. RRF（Reciprocal Rank Fusion）合并两个结果集
+
+      4. 去重后取 top-N 注入 prompt 上下文'
+  index_maintenance:
+    auto_index: '1. 新增文件时自动触发索引重建
+
+      2. 文件修改时自动更新索引
+
+      3. 定期（每周）全量重建'
+    chunking_strategy: '对于 research/ 中的长文本，按以下规则分块：
+
+      1. 按 ## 二级标题分块（主块）
+
+      2. 超过500字的块按自然段落再分
+
+      3. 每个块保留源文件路径和标题元数据'
+integration_with_prompt_manager:
+  method: 在 stage_1_conceive 和 stage_2_model 的 task 末尾追加检索到的知识上下文
+  pseudo_code: "class PromptManager:\n    def __init__(self):\n        self.knowledge = self._load_knowledge_base()\n\n  \
+    \  def _load_knowledge_base(self):\n        # 遍历 data/knowledge/ 下所有 .yaml 文件\n        # 按 factor_store / strategy_templates\
+    \ / trading_rules 分类缓存\n        pass\n\n    def _search_knowledge(self, query: str, top_k: int = 5) -> str:\n        #\
+    \ phase 1: 关键词匹配\n        # 对每个文档的每个字段做 query 关键词匹配\n        # 返回匹配度最高的 top_k 个文档片段拼接\n        pass\n\n    def get_stage_prompt(self,\
+    \ template_name, variables, user_input):\n        prompt = 原有组裝逻辑\n        if template_name in [\"stage_1_conceive\",\
+    \ \"stage_2_model\"]:\n            context = self._search_knowledge(user_input)\n            if context:\n           \
+    \     prompt += \"\\n\\n【知识库上下文】\\n\" + context\n        return prompt"
+  notes: 不需要修改 chat.py 的调用流程，仅在 PromptManager 内部增加知识检索逻辑。默认只对阶段1(构思)和阶段2(建模)注入知识库上下文，避免增加阶段4/5的token消耗。
+recommended_priorities:
+- 'P0: 扩充 trading_rules.yaml — 补全现有4个交易所的品种明细、保证金阶梯、交割规则'
+- 'P0: 建立 factor_store/ 目录 — 先从 momentum_20d, volatility_20d, volume_ratio 三个最常用因子开始'
+- 'P1: 在 PromptManager 中实现 _search_knowledge() 关键词检索'
+- 'P1: 建立 strategy_templates/ 目录 — 将已有 strategy/ 下的策略抽出模板'
+- 'P2: 迁移到 ChromaDB 实现向量检索'
+- 'P2: 建立 research/ 目录 — 开始积累投研报告和复盘笔记'

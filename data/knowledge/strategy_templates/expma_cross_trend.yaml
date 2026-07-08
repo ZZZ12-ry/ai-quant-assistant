@@ -1,0 +1,35 @@
+# 策略模板: EXPMA金叉趋势跟踪
+strategy_name: EXPMA金叉趋势跟踪
+strategy_type: trend
+core_logic: 短期EXPMA（10日）上穿长期EXPMA（30日）时做多，下穿时做空。使用ATR动态止损。
+parameters:
+- - short_period
+  - 10
+  - 5-30
+  - int
+- - long_period
+  - 30
+  - 20-60
+  - int
+- - stop_loss_pct
+  - 0.05
+  - 0.02-0.10
+  - float
+- - take_profit_pct
+  - 0.1
+  - 0.05-0.20
+  - float
+applicable_symbols:
+- RB
+- HC
+- I
+- M
+timeframe: 日线
+historical_performance:
+  annual_return: null
+  max_drawdown: null
+  sharpe_ratio: null
+  win_rate: null
+  backtest_period: null
+status: template
+notes: 只作为EXPMA双均线策略的结构模板。未经当前项目固定回测引擎验证前，禁止引用任何绩效数字。震荡市中可能频繁反复，应考虑趋势过滤、波动率过滤或止损规则。

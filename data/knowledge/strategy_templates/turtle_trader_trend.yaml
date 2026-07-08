@@ -1,0 +1,73 @@
+# 策略模板: 海龟交易趋势突破
+strategy_name: 海龟交易趋势突破
+source_project: quant-strategy-factory
+source_module: src/strategies/turtle_trader.py
+strategy_type: trend_breakout
+core_logic: 使用唐奇安通道突破作为入场条件，ATR 衡量波动率并设置止损；适合趋势持续性强、突破后延续概率较高的行情。
+engine_mapping:
+  current_engine_interface: compute_indicators -> generate_signals -> run
+  old_project_interface: on_bar -> Signal
+  migration_note: 旧项目逐根K线维护 high/low/ATR 状态；迁移到当前项目时应使用 rolling high/low 和 ATR 列批量计算。
+parameters:
+- - entry_period
+  - 20
+  - 10-50
+  - int
+  - 入场通道周期，越大越过滤噪声但入场更慢
+- - exit_period
+  - 10
+  - 5-30
+  - int
+  - 离场通道周期，越小止盈/止损更敏感
+- - atr_period
+  - 20
+  - 10-30
+  - int
+  - ATR 波动率周期
+- - stop_loss_atr
+  - 2.0
+  - 1.5-3.0
+  - float
+  - ATR 止损倍数
+- - profit_exit_atr
+  - 2.5
+  - 1.5-5.0
+  - float
+  - ATR 止盈或保护性离场倍数
+- - max_position_pct
+  - 0.02
+  - 0.01-0.05
+  - float
+  - 单笔风险或仓位上限参考
+- - risk_level
+  - 0.01
+  - 0.005-0.03
+  - float
+  - 每单位风险预算
+applicable_symbols:
+- RB
+- HC
+- I
+- M
+- CF
+- TA
+timeframe: 日线
+signal_rules:
+  long_entry: 收盘价突破 entry_period 周期最高价
+  short_entry: 收盘价跌破 entry_period 周期最低价
+  long_exit: 跌破 exit_period 周期低点或触发 ATR 止损
+  short_exit: 突破 exit_period 周期高点或触发 ATR 止损
+implementation_guidance:
+  no_lookahead: 通道最高/最低价应使用 shift(1) 的历史窗口，避免使用当前K线自身高低点形成未来函数
+  atr_formula: TR=max(high-low, abs(high-close.shift(1)), abs(low-close.shift(1))); ATR=TR.rolling(atr_period).mean()
+  signal_raw: 1=开多/加多/反手做多，-1=开空/加空/反手做空，0=无新的方向交易
+  exit_signal: 1=下一根K线只平仓，0=不平仓；止损、通道退出等只平仓逻辑应写入 exit_signal
+  risk_note: 海龟类策略胜率可能偏低，核心依赖盈亏比和趋势延续；必须重点检查连续亏损和回撤修复时间
+historical_performance:
+  annual_return: null
+  max_drawdown: null
+  sharpe_ratio: null
+  win_rate: null
+  backtest_period: null
+status: template
+notes: 适合作为突破类趋势策略的 RAG 模板；阶段2生成代码时必须把通道窗口前移一根K线。

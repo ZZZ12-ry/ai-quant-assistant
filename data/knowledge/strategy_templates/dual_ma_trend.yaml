@@ -1,0 +1,60 @@
+# 策略模板: 双均线趋势跟踪
+strategy_name: 双均线趋势跟踪
+source_project: quant-strategy-factory
+source_module: src/strategies/dual_ma.py
+strategy_type: trend
+core_logic: 快速均线上穿慢速均线做多，下穿做空；持仓后用固定百分比止损和止盈控制单笔风险。
+engine_mapping:
+  current_engine_interface: compute_indicators -> generate_signals -> run
+  old_project_interface: on_bar -> Signal
+  migration_note: 旧项目是事件驱动接口，不能原样复制；迁移到当前项目时应改写为 DataFrame 批量计算，并在信号列中使用 signal_raw。
+parameters:
+- - fast_ma
+  - 10
+  - 5-30
+  - int
+  - 快速均线周期，越小信号越灵敏，交易次数越多
+- - slow_ma
+  - 30
+  - 20-100
+  - int
+  - 慢速均线周期，越大越偏中长线趋势过滤
+- - use_ema
+  - false
+  - true/false
+  - bool
+  - 是否使用 EMA 替代 SMA
+- - stop_loss_pct
+  - 0.05
+  - 0.02-0.10
+  - float
+  - 固定止损比例
+- - take_profit_pct
+  - 0.10
+  - 0.05-0.20
+  - float
+  - 固定止盈比例
+applicable_symbols:
+- RB
+- HC
+- I
+- M
+timeframe: 日线
+signal_rules:
+  long_entry: fast_ma 从下向上穿越 slow_ma
+  short_entry: fast_ma 从上向下穿越 slow_ma
+  long_exit: 固定止损、固定止盈或反向死叉
+  short_exit: 固定止损、固定止盈或反向金叉
+implementation_guidance:
+  no_lookahead: 交叉判断必须使用上一根K线状态和当前K线状态，回测入场应使用下一根K线开盘价
+  signal_raw: 1=开多/加多/反手做多，-1=开空/加空/反手做空，0=无新的方向交易
+  exit_signal: 1=下一根K线只平仓，0=不平仓；双均线反向交叉通常可直接用 signal_raw 反手
+  risk_note: 该策略在震荡行情中容易频繁反复，应考虑趋势过滤或波动率过滤
+historical_performance:
+  annual_return: null
+  max_drawdown: null
+  sharpe_ratio: null
+  win_rate: null
+  backtest_period: null
+status: template
+notes: 适合作为阶段2生成均线类策略代码的基础模板；不要把旧项目 on_bar 状态机直接复制到当前项目。

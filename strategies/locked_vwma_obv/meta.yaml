@@ -1,0 +1,5 @@
+complete: true
+completed_stage: 5
+description: 五阶段历史示例策略，展示策略构思、建模、回测、检查和分析模板。
+example: true
+name: 简单有效的均线量化策略

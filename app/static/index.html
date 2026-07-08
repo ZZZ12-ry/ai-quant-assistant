@@ -1,0 +1,1797 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI量化研究平台</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:#fff;color:#243244}
+body{overflow:hidden}
+.app{display:flex;height:100vh;min-width:1080px}
+.left{width:420px;min-width:340px;max-width:640px;background:#f4f7fb;display:flex;flex-direction:column;flex:0 0 420px}
+.splitter{width:7px;flex:0 0 7px;background:#d8e1eb;cursor:col-resize;position:relative;z-index:5}
+.splitter::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:1px;background:#b8c8d8}
+.splitter:hover,.splitter.dragging{background:#c4d8ee}
+.splitter:hover::after,.splitter.dragging::after{background:#1565c0}
+.resizing{cursor:col-resize;user-select:none}
+.resizing iframe{pointer-events:none}
+.right{flex:1;display:flex;flex-direction:column;min-width:520px}
+.hdr{height:56px;padding:0 14px 0 18px;background:#bbdefb;border-bottom:1px solid #d8e1eb;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.brand{font-size:20px;font-weight:700;color:#1565c0}
+.left-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.tool-btn{height:30px;background:#fff;border:1px solid #d8e1eb;color:#4b5d70;border-radius:6px;padding:0 10px;font-size:12px;cursor:pointer;white-space:nowrap}
+.tool-btn:hover{background:#f8fbff;color:#1565c0}
+.history-panel{display:none;padding:12px 14px;background:#eef6ff;border-bottom:1px solid #d8e1eb}
+.history-panel.show{display:block}
+.history-title{font-size:12px;font-weight:700;color:#52667a;margin-bottom:8px}
+.history-list{display:flex;flex-direction:column;gap:8px}
+.history-row{display:grid;grid-template-columns:1fr 30px;gap:6px;align-items:stretch}
+.history-item{width:100%;border:1px solid #d8e1eb;background:#fff;color:#243244;border-radius:8px;padding:10px 12px;text-align:left;font-size:13px;line-height:1.5;cursor:pointer;overflow:hidden;text-overflow:ellipsis}
+.history-item:hover{border-color:#1565c0;background:#f8fbff;color:#1565c0}
+.history-delete{border:1px solid #d8e1eb;background:#fff;color:#8ca0b3;border-radius:8px;font-size:18px;line-height:1;cursor:pointer}
+.history-delete:hover{border-color:#d92d20;color:#b42318;background:#fff5f5}
+.history-empty{font-size:12px;color:#8ca0b3;padding:8px 2px}
+.chat{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.msg{padding:11px 13px;border-radius:10px;line-height:1.72;font-size:13px;white-space:pre-wrap;word-break:break-word}
+.msg.sys{background:#eaf3ff;border:1px solid #d5e6fb;color:#294764}
+.msg.usr{background:#fff;border:1px solid #d8e1eb;align-self:flex-end;max-width:90%}
+.inp{padding:12px;border-top:1px solid #d8e1eb;background:#f9fbfe}
+.inp textarea{width:100%;height:68px;border:1px solid #d8e1eb;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.6;resize:none;outline:none;background:#fff;color:#243244}
+.inp textarea:focus{border-color:#1565c0;box-shadow:0 0 0 2px rgba(21,101,192,.08)}
+.send-row{display:flex;justify-content:flex-end;margin-top:10px}
+.send-btn{background:#1565c0;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:13px;cursor:pointer}
+.send-btn:hover{background:#0f4fa8}
+.send-btn:disabled{background:#88b7f0;cursor:not-allowed}
+.topbar{height:56px;padding:0 20px;background:#bbdefb;border-bottom:1px solid #d8e1eb;display:flex;align-items:center;justify-content:space-between}
+.current-strategy{font-size:13px;color:#4f6479;font-weight:600}
+.topbar-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.strategy-select{height:34px;min-width:280px;max-width:420px;border:1px solid #d8e1eb;border-radius:6px;background:#fff;color:#243244;padding:0 10px;font-size:13px}
+.stages{height:42px;padding:0 16px;background:#bbdefb;border-bottom:1px solid #d8e1eb;display:flex;align-items:flex-end}
+.stage{height:42px;padding:0 16px;display:flex;align-items:center;justify-content:center;border-bottom:2px solid transparent;color:#4f6479;font-size:13px;cursor:pointer;white-space:nowrap}
+.stage:hover{color:#1565c0}
+.stage.active{color:#1565c0;border-bottom-color:#1565c0;background:rgba(255,255,255,.32);font-weight:700}
+.stage.done{color:#2e7d32}
+.stage.pending{color:#8ca0b3}
+.body{flex:1;overflow-y:auto;padding:26px 30px;background:#fff}
+.doc{max-width:1100px}
+.doc h1{font-size:28px;line-height:1.25;color:#102a43;margin-bottom:18px}
+.doc h2{font-size:20px;line-height:1.35;color:#102a43;margin:28px 0 12px;padding-bottom:8px;border-bottom:1px solid #e7eef6}
+.doc h3{font-size:16px;color:#1565c0;margin:20px 0 8px}
+.doc h4{font-size:15px;color:#334e68;margin:16px 0 6px}
+.doc p{font-size:15px;line-height:1.8;color:#334e68;margin:10px 0}
+.doc strong{color:#102a43}
+.stage-intro{background:#f6faff;border:1px solid #d8e1eb;border-left:3px solid #1565c0;border-radius:8px;padding:14px 16px;margin-bottom:20px}
+.stage-intro p{margin:4px 0;color:#4f6479}
+.empty-state{padding:64px 20px;text-align:center;color:#8ca0b3}
+.empty-state p{margin:8px 0;font-size:15px}
+.start-panel{max-width:760px;margin:72px auto 0;color:#334e68}
+.start-panel h2{font-size:24px;color:#102a43;margin-bottom:12px}
+.start-panel p{font-size:15px;line-height:1.8;color:#52667a;margin:8px 0}
+.start-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:18px}
+.start-item{border:1px solid #d8e1eb;background:#f8fbff;border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.65;color:#334e68}
+.action-row{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:24px}
+.btn{background:#1565c0;color:#fff;border:none;border-radius:6px;padding:9px 20px;font-size:13px;cursor:pointer}
+.btn:hover{background:#0f4fa8}
+.btn.secondary{background:#eef4fb;color:#1565c0;border:1px solid #d8e1eb}
+.btn.secondary:hover{background:#e5effb}
+.btn:disabled{background:#8ebbf0;cursor:not-allowed}
+.backtest-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f8fbff;border:1px solid #d8e1eb;border-radius:10px;padding:12px 14px;margin:0 0 18px}
+.backtest-controls label{font-size:13px;font-weight:700;color:#52667a}
+.backtest-controls select{height:34px;min-width:180px;border:1px solid #d8e1eb;border-radius:6px;background:#fff;color:#243244;padding:0 10px;font-size:13px}
+.backtest-controls .hint{font-size:12px;color:#7b8fa3}
+.symbol-picks{display:flex;gap:6px;flex-wrap:wrap;align-items:center;width:100%;margin-top:2px}
+.symbol-pick{display:inline-flex;align-items:center;gap:5px;border:1px solid #d8e1eb;border-radius:999px;background:#fff;padding:5px 9px;font-size:12px;color:#334e68;cursor:pointer}
+.symbol-pick input{accent-color:#1565c0}
+.symbol-pick:hover{border-color:#1565c0;background:#f4f9ff}
+.fit-table td,.fit-table th{font-size:12px}
+.fit-recommend{border:1px solid #c8e6c9;background:#f6fff6;color:#1b5e20;border-radius:8px;padding:10px 12px;margin:10px 0 14px;font-size:13px;line-height:1.65}
+.table-wrap{overflow-x:auto;margin:16px 0 20px;border:1px solid #d8e1eb;border-radius:8px}
+table{width:100%;border-collapse:collapse;background:#fff}
+th{background:#f3f8ff;color:#0f4fa8;font-size:13px;font-weight:700;padding:10px 12px;text-align:left;border-bottom:1px solid #d8e1eb}
+td{padding:10px 12px;border-bottom:1px solid #edf2f7;font-size:13px;color:#334e68;vertical-align:top}
+tr:last-child td{border-bottom:none}
+.doc ul,.doc ol{margin:10px 0 14px 22px}
+.doc li{margin:6px 0;color:#334e68;font-size:15px;line-height:1.8}
+code{background:#eef5fb;color:#0f4fa8;border-radius:4px;padding:2px 5px;font-size:13px;font-family:Consolas,"SFMono-Regular",monospace}
+pre{background:#f8fafc;border:1px solid #d8e1eb;border-radius:10px;padding:16px 18px;overflow:auto;font-size:14px;line-height:1.75;color:#223142;margin:16px 0 20px;box-shadow:inset 0 1px 0 rgba(255,255,255,.75)}
+pre code{background:transparent;color:inherit;padding:0}
+.tok-kw{color:#7c3aed;font-weight:600}
+.tok-str{color:#0f766e}
+.tok-num{color:#b45309}
+.tok-com{color:#475569;font-style:normal;font-weight:500;font-family:"Microsoft YaHei","Segoe UI",sans-serif}
+.tok-builtin{color:#2563eb}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:18px 0}
+.metric{background:#f4f7fb;border-radius:8px;padding:16px 12px;text-align:center}
+.metric-value{font-size:32px;line-height:1;font-weight:700;color:#1565c0}
+.metric-label{font-size:12px;color:#5f7286;margin-top:10px}
+.decision-strip{border:1px solid #d8e1eb;border-left:4px solid #1565c0;border-radius:10px;background:#f8fbff;padding:16px 18px;margin:0 0 18px}
+.decision-strip h3{margin:0 0 8px;color:#102a43;font-size:18px}
+.decision-strip p{margin:6px 0;color:#334e68;font-size:14px;line-height:1.75}
+.decision-meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.decision-pill{display:inline-flex;align-items:center;border:1px solid #cfe0f1;background:#fff;border-radius:999px;padding:5px 10px;font-size:12px;color:#334e68}
+.decision-pill.weak{border-color:#f2c6c6;color:#b42318;background:#fff7f7}
+.decision-pill.ok{border-color:#c8e6c9;color:#1b5e20;background:#f6fff6}
+.evidence-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:14px 0 18px}
+.evidence-card{background:#fff;border:1px solid #d8e1eb;border-radius:8px;padding:12px}
+.evidence-card .v{font-size:20px;font-weight:800;color:#1565c0;line-height:1.15}
+.evidence-card .k{font-size:12px;color:#66788a;margin-top:6px}
+.fold{border:1px solid #d8e1eb;border-radius:10px;background:#fff;margin:16px 0;overflow:hidden}
+.fold summary{cursor:pointer;padding:12px 14px;font-size:14px;font-weight:700;color:#1565c0;background:#f6faff}
+.fold-body{padding:16px}
+.research-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:16px 0 18px}
+.flow-step{border:1px solid #d8e1eb;background:#fbfdff;border-radius:8px;padding:11px 12px;color:#334e68;font-size:13px;line-height:1.55}
+.flow-step strong{display:block;color:#102a43;margin-bottom:3px}
+.model-card{border:1px solid #d8e1eb;background:#fbfdff;border-radius:10px;padding:14px 16px;margin:0 0 14px}
+.model-card h3{margin:0 0 8px;color:#102a43;font-size:17px}
+.model-card p{font-size:14px;margin:6px 0;color:#334e68}
+.model-snippets{display:grid;grid-template-columns:1fr;gap:12px;margin:14px 0;max-width:920px}
+.snippet{border:1px solid #d8e1eb;border-radius:10px;background:#fff;overflow:hidden}
+.snippet-title{background:#f6faff;border-bottom:1px solid #d8e1eb;padding:10px 12px;font-weight:800;color:#0f4fa8;font-size:13px}
+.snippet-note{padding:10px 12px;color:#52667a;font-size:13px;line-height:1.65;border-bottom:1px solid #edf2f7}
+.snippet pre{border:none;border-radius:0;margin:0;max-height:300px;font-size:14px}
+.report-frame{width:100%;min-height:980px;height:980px;border:1px solid #d8e1eb;border-radius:10px;background:#fff;margin-top:0;overflow:hidden}
+.report-actions{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:14px 0 6px;font-size:13px;color:#5f7286}
+.report-actions a{color:#1565c0;text-decoration:none;font-weight:600}
+.report-actions a:hover{text-decoration:underline}
+.pos{color:#c62828}
+.neg{color:#2e7d32}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:20;align-items:center;justify-content:center}
+.modal.show{display:flex}
+.modal-box{width:400px;background:#fff;border:1px solid #d8e1eb;border-radius:10px;padding:22px 22px 18px;box-shadow:0 8px 24px rgba(0,0,0,.12)}
+.modal-close{float:right;background:none;border:none;color:#6b7f92;font-size:18px;cursor:pointer}
+.modal-box h3{font-size:18px;color:#1565c0;margin-bottom:14px}
+.modal-box input,.modal-box select,.modal-box textarea{width:100%;border:1px solid #d8e1eb;border-radius:6px;padding:0 12px;font-size:13px;outline:none;background:#fff;color:#243244}
+.modal-box input,.modal-box select{height:38px}
+.modal-box textarea{height:86px;padding:9px 12px;line-height:1.6;resize:none}
+.modal-box label{display:block;font-size:12px;font-weight:700;color:#52667a;margin:10px 0 6px}
+.modal-box input:focus,.modal-box select:focus,.modal-box textarea:focus{border-color:#1565c0}
+.modal-status{font-size:12px;color:#5f7286;margin-top:10px;text-align:center}
+.iteration-ideas{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:8px 0 12px}
+.idea-btn{border:1px solid #d8e1eb;background:#fbfdff;color:#243244;border-radius:8px;padding:9px 10px;text-align:left;font-size:12px;line-height:1.45;cursor:pointer}
+.idea-btn:hover{border-color:#1565c0;background:#f4f9ff;color:#0f4fa8}
+@media (max-width:1080px){
+  .app{min-width:0}
+  .left{width:360px;min-width:320px;flex-basis:360px}
+  .right{min-width:420px}
+  .body{padding:20px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="left">
+    <div class="hdr">
+      <div class="brand">AI量化助手</div>
+      <div class="left-actions">
+        <button class="tool-btn" onclick="newChat()">新建对话</button>
+        <button class="tool-btn" onclick="toggleHistory()">历史策略</button>
+        <button class="tool-btn" onclick="showSettings()">设置</button>
+      </div>
+    </div>
+    <div class="history-panel" id="historyPanel">
+      <div class="history-title">历史策略</div>
+      <div class="history-list" id="historyList">
+        <div class="history-empty">加载中...</div>
+      </div>
+    </div>
+    <div class="chat" id="chat"></div>
+    <div class="inp">
+      <textarea id="inp" placeholder="贴入策略文章或输入指令..."></textarea>
+      <div class="send-row">
+        <button class="send-btn" id="sendBtn" onclick="send()">发送</button>
+      </div>
+    </div>
+  </div>
+  <div class="splitter" id="splitter" title="拖动调整对话区宽度"></div>
+  <div class="right">
+    <div class="topbar">
+      <div class="current-strategy" id="currentStrategyLabel">当前策略：加载中...</div>
+      <div class="topbar-actions">
+        <button class="tool-btn" id="exportBtn" style="display:none" onclick="exportReport()">导出报告</button>
+        <button class="tool-btn" id="iterateBtn" style="display:none" onclick="showIterationModal()">基于此策略迭代</button>
+      </div>
+    </div>
+    <div class="stages">
+      <div class="stage active" id="st1" onclick="switchStage(1)">1 策略构思</div>
+      <div class="stage" id="st2" onclick="switchStage(2)">2 建模</div>
+      <div class="stage" id="st3" onclick="switchStage(3)">3 回测</div>
+      <div class="stage" id="st4" onclick="switchStage(4)">4 检查</div>
+      <div class="stage" id="st5" onclick="switchStage(5)">5 分析</div>
+    </div>
+    <div class="body" id="body"></div>
+  </div>
+</div>
+
+<div class="modal" id="settingsModal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeSettings()">&times;</button>
+    <h3>API 设置</h3>
+    <input type="password" id="apiKeyInput" placeholder="sk-...">
+    <div class="action-row" style="margin-top:14px">
+      <button class="btn" onclick="saveSettings()">保存</button>
+    </div>
+    <div class="modal-status" id="settingsStatus"></div>
+  </div>
+</div>
+
+<div class="modal" id="iterationModal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeIterationModal()">&times;</button>
+    <h3>创建迭代版本</h3>
+    <label>推荐迭代思路</label>
+    <div class="iteration-ideas" id="iterationIdeas">
+      <button class="idea-btn" onclick="applyIterationIdea('parameter')">参数敏感性<br>扫描核心周期和阈值</button>
+      <button class="idea-btn" onclick="applyIterationIdea('exit_loosen')">放宽出场<br>减少过早止损离场</button>
+      <button class="idea-btn" onclick="applyIterationIdea('direction_filter')">方向过滤<br>修复主要亏损方向</button>
+      <button class="idea-btn" onclick="applyIterationIdea('risk')">风控仓位<br>调整止损和持仓上限</button>
+      <button class="idea-btn" onclick="applyIterationIdea('multi_symbol')">多品种验证<br>检查是否只适合特定市场</button>
+    </div>
+    <label>迭代类型</label>
+    <select id="iterationType">
+      <option value="add_filter">增加/删除过滤条件</option>
+      <option value="parameter">修改参数</option>
+      <option value="entry_exit">修改入场/出场规则</option>
+      <option value="risk">修改仓位/风控</option>
+      <option value="multi_symbol">多品种验证</option>
+      <option value="free_edit">复制为新策略自由修改</option>
+    </select>
+    <label>迭代说明</label>
+    <textarea id="iterationNote" placeholder="例如：增加ADX过滤，减少震荡行情中的假信号"></textarea>
+    <label>新版本名称</label>
+    <input id="iterationName" placeholder="例如：简单均线策略 v2 - ADX过滤">
+    <div class="action-row" style="margin-top:14px">
+      <button class="btn" onclick="createIteration()">创建迭代版本</button>
+    </div>
+    <div class="modal-status" id="iterationStatus"></div>
+  </div>
+</div>
+
+<script>
+function E(id){return document.getElementById(id)}
+async function G(url){
+  const r = await fetch(url,{cache:"no-store"});
+  return r.json();
+}
+function escapeHtml(s){
+  return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+const stages = {
+  1: {
+    title: "策略构思",
+    chatTitle: "阶段1：策略构思",
+    chatText: "把策略文章、交易想法或研究笔记贴到这里。我会先帮你梳理逻辑、参数、入场出场、风险控制和需要确认的问题。",
+    workText: "把原始策略材料整理成结构化说明，沉淀核心逻辑、指标定义、交易规则、参数表和待确认项。",
+    empty: "请在左侧贴入策略文章，或简要描述你的策略想法。"
+  },
+  2: {
+    title: "建模",
+    chatTitle: "阶段2：建模",
+    chatText: "这一阶段会根据策略说明生成可回测代码，并自动对接当前项目里的参数结构和策略接口。",
+    workText: "根据阶段1策略说明生成可回测代码、默认参数和必要注释，并对接当前项目的策略接口。",
+    empty: "还没有策略代码。完成阶段1后进入这里生成建模结果。"
+  },
+  3: {
+    title: "回测",
+    chatTitle: "阶段3：回测",
+    chatText: "这一阶段调用固定回测引擎，输出关键指标、交易明细、资金曲线和完整回测报告。",
+    workText: "调用固定回测引擎生成交易明细、资金曲线和完整 HTML 回测报告，报告主体直接嵌入工作台。",
+    empty: "还没有回测结果。完成阶段2后进入这里运行回测。"
+  },
+  4: {
+    title: "检查",
+    chatTitle: "阶段4：检查",
+    chatText: "这一阶段会对照策略说明、代码实现和回测结果，检查规则一致性、未来函数风险和关键参数问题。",
+    workText: "对照策略说明、代码实现和回测结果，检查规则一致性、未来函数风险和关键参数问题。",
+    empty: "还没有检查结果。完成回测后再进入这里。"
+  },
+  5: {
+    title: "分析",
+    chatTitle: "阶段5：分析",
+    chatText: "这一阶段基于真实回测数据做归纳分析，总结收益特征、风险点、适用行情和后续优化方向。",
+    workText: "基于真实回测数据归纳收益特征、风险点、适用行情和后续优化方向。",
+    empty: "还没有分析报告。完成前面阶段后再生成最终分析。"
+  }
+};
+
+const state = {
+  currentStage: 1,
+  workflowStage: 1,
+  isComplete: false,
+  activeStrategy: "",
+  reportUrl: "",
+  reportDataFiles: {},
+  symbols: {
+    "RB0":"螺纹钢",
+    "HC0":"热卷",
+    "I0":"铁矿石",
+    "J0":"焦炭",
+    "JM0":"焦煤",
+    "TA0":"PTA",
+    "MA0":"甲醇",
+    "PP0":"聚丙烯",
+    "CU0":"沪铜",
+    "AL0":"沪铝",
+    "ZN0":"沪锌",
+    "AU0":"黄金",
+    "AG0":"白银",
+    "M0":"豆粕",
+    "Y0":"豆油",
+    "P0":"棕榈油"
+  },
+  selectedBacktestSymbol: "RB0",
+  selectedBacktestSymbols: ["RB0","HC0","I0","AU0","AG0","M0"],
+  multiSymbolResults: null,
+  stageContent: {1:"",2:"",3:"",4:"",5:""},
+  stage2Code: "",
+  stageActions: {1:"",2:"",3:"",4:"",5:""},
+  backtestSummary: null,
+  strategySpec: null,
+  iteration: null,
+  iterationSuggestions: [],
+  iterationCompare: null
+};
+
+function resetState(){
+  state.currentStage = 1;
+  state.workflowStage = 1;
+  state.isComplete = false;
+  state.activeStrategy = "";
+  state.reportUrl = "";
+  state.reportDataFiles = {};
+  state.selectedBacktestSymbol = "RB0";
+  state.selectedBacktestSymbols = ["RB0","HC0","I0","AU0","AG0","M0"];
+  state.multiSymbolResults = null;
+  state.stageContent = {1:"",2:"",3:"",4:"",5:""};
+  state.stage2Code = "";
+  state.stageActions = {1:"",2:"",3:"",4:"",5:""};
+  state.backtestSummary = null;
+  state.strategySpec = null;
+  state.iteration = null;
+  state.iterationSuggestions = [];
+  state.iterationCompare = null;
+  const iterateBtn = E("iterateBtn");
+  if(iterateBtn) iterateBtn.style.display = "none";
+  const exportBtn = E("exportBtn");
+  if(exportBtn) exportBtn.style.display = "none";
+}
+
+function updateGuide(stage){
+  return;
+}
+
+function addMessage(type, content){
+  const box = document.createElement("div");
+  box.className = "msg " + type;
+  box.innerHTML = mdToHtml(content);
+  E("chat").appendChild(box);
+  box.scrollIntoView({behavior:"smooth", block:"end"});
+}
+
+async function toggleHistory(){
+  E("historyPanel").classList.toggle("show");
+  if(E("historyPanel").classList.contains("show")){
+    try{
+      populateHistory(await G("/api/strategies"));
+    }catch(e){
+      E("historyList").innerHTML = '<div class="history-empty">历史策略加载失败</div>';
+    }
+  }
+}
+
+function renderNewChatHome(){
+  state.currentStage = 1;
+  state.workflowStage = 1;
+  state.isComplete = false;
+  state.activeStrategy = "";
+  state.reportUrl = "";
+  state.reportDataFiles = {};
+  state.backtestSummary = null;
+  state.selectedBacktestSymbol = "RB0";
+  state.selectedBacktestSymbols = ["RB0","HC0","I0","AU0","AG0","M0"];
+  state.multiSymbolResults = null;
+  state.strategySpec = null;
+  state.stageContent = {1:"",2:"",3:"",4:"",5:""};
+  state.stage2Code = "";
+  state.stageActions = {1:"",2:"",3:"",4:"",5:""};
+  E("currentStrategyLabel").textContent = "当前策略：新策略草稿";
+  refreshStageLocks();
+  E("body").innerHTML =
+    '<div class="doc"><div class="start-panel">' +
+    '<h2>开始一个新策略研究</h2>' +
+    '<p>把策略文章、交易想法或研究笔记贴到左侧对话框。工作台会按阶段沉淀策略说明、代码、回测、检查和分析结果。</p>' +
+    '<div class="start-list">' +
+    '<div class="start-item">阶段1会先整理策略逻辑、参数、入场出场和风险控制。</div>' +
+    '<div class="start-item">阶段2会生成符合当前回测接口的策略代码。</div>' +
+    '<div class="start-item">阶段3以后会基于真实回测结果继续检查和分析。</div>' +
+    '</div></div></div>';
+}
+
+async function newChat(){
+  E("chat").innerHTML = "";
+  E("inp").value = "";
+  E("historyPanel").classList.remove("show");
+  resetState();
+  renderNewChatHome();
+  try{
+    const created = await fetch("/api/conversation/new", {method:"POST"}).then(function(r){return r.json()});
+    state.activeStrategy = created.active || "";
+    const list = await G("/api/strategies");
+    populateHistory(list);
+  }catch(e){
+    E("currentStrategyLabel").textContent = "当前策略：新策略草稿";
+  }
+  E("inp").focus();
+}
+
+function populateHistory(list){
+  const box = E("historyList");
+  box.innerHTML = "";
+  if(!list || !list.length){
+    box.innerHTML = '<div class="history-empty">暂无已完成策略</div>';
+    return;
+  }
+  list.forEach(function(item){
+    const row = document.createElement("div");
+    row.className = "history-row";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "history-item";
+    btn.textContent = item.name || item.id;
+    btn.onclick = function(){ switchStrategy(item.id); };
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "history-delete";
+    del.title = "删除历史策略";
+    del.textContent = "×";
+    del.onclick = function(ev){
+      ev.stopPropagation();
+      deleteHistoryStrategy(item.id, item.name || item.id);
+    };
+    row.appendChild(btn);
+    row.appendChild(del);
+    box.appendChild(row);
+  });
+}
+
+async function deleteHistoryStrategy(id, name){
+  const ok = confirm('确认删除历史策略“' + name + '”吗？\\n\\n删除后不会出现在历史策略列表中。');
+  if(!ok) return;
+  try{
+    const r = await fetch("/api/strategy/" + encodeURIComponent(id), {method:"DELETE"});
+    const data = await r.json();
+    if(data.error){
+      addMessage("sys", "删除失败：" + data.error);
+      return;
+    }
+    addMessage("sys", "已删除历史策略：" + name);
+    const list = await G("/api/strategies");
+    populateHistory(list);
+    await loadOverview();
+    await loadWorkflowStage();
+  }catch(e){
+    addMessage("sys", "删除失败：" + e.message);
+  }
+}
+
+function initResizablePanes(){
+  const left = document.querySelector(".left");
+  const splitter = E("splitter");
+  if(!left || !splitter) return;
+  const minLeft = 340;
+  const maxLeft = 640;
+  const minRight = 520;
+  const saved = Number(localStorage.getItem("aiQuantLeftWidth") || 0);
+  if(saved){
+    const maxAllowed = Math.max(minLeft, window.innerWidth - minRight - splitter.offsetWidth);
+    const width = Math.min(Math.max(saved, minLeft), Math.min(maxLeft, maxAllowed));
+    left.style.flexBasis = width + "px";
+    left.style.width = width + "px";
+  }
+
+  function applyWidth(clientX){
+    const maxAllowed = Math.max(minLeft, window.innerWidth - minRight - splitter.offsetWidth);
+    const width = Math.min(Math.max(clientX, minLeft), Math.min(maxLeft, maxAllowed));
+    left.style.flexBasis = width + "px";
+    left.style.width = width + "px";
+    localStorage.setItem("aiQuantLeftWidth", String(Math.round(width)));
+  }
+
+  splitter.addEventListener("mousedown", function(e){
+    e.preventDefault();
+    splitter.classList.add("dragging");
+    document.body.classList.add("resizing");
+    function onMove(ev){ applyWidth(ev.clientX); }
+    function onUp(){
+      splitter.classList.remove("dragging");
+      document.body.classList.remove("resizing");
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+
+  splitter.addEventListener("dblclick", function(){
+    left.style.flexBasis = "420px";
+    left.style.width = "420px";
+    localStorage.setItem("aiQuantLeftWidth", "420");
+  });
+
+  window.addEventListener("resize", function(){
+    const current = left.getBoundingClientRect().width || 420;
+    applyWidth(current);
+  });
+}
+
+function highlightCode(raw, lang){
+  let pattern = /(#[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(?:def|class|return|if|else|elif|for|while|import|from|as|try|except|with|lambda|in|and|or|not|True|False|None|self|function|var|let|const|async|await)\b|\b(?:print|len|range|dict|list|set|str|int|float|bool|DataFrame|Series)\b|-?\b\d+(?:\.\d+)?\b)/g;
+  if((lang || "").toLowerCase().includes("json")){
+    pattern = /("(?:\\.|[^"\\])*"|-?\b\d+(?:\.\d+)?\b|\b(?:true|false|null)\b)/g;
+  }
+  let out = "";
+  let last = 0;
+  let m;
+  while((m = pattern.exec(raw)) !== null){
+    out += escapeHtml(raw.slice(last, m.index));
+    const token = m[0];
+    let cls = "tok-num";
+    if(token.startsWith("#")) cls = "tok-com";
+    else if(token.startsWith('"') || token.startsWith("'")) cls = "tok-str";
+    else if(/^(print|len|range|dict|list|set|str|int|float|bool|DataFrame|Series)$/.test(token)) cls = "tok-builtin";
+    else if(!/^-?\d/.test(token)) cls = "tok-kw";
+    out += '<span class="' + cls + '">' + escapeHtml(token) + "</span>";
+    last = pattern.lastIndex;
+  }
+  out += escapeHtml(raw.slice(last));
+  return out;
+}
+
+function mdToHtml(input){
+  const lines = sanitizeDisplayText(input).replace(/\r\n/g, "\n").split("\n");
+  const html = [];
+  let paragraph = [];
+  let listType = null;
+  let inCode = false;
+  let code = [];
+  let codeLang = "";
+  let table = [];
+
+  function inline(text){
+    let s = escapeHtml(text);
+    s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+    s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, label, url){
+      return '<a href="' + escapeHtml(url) + '" target="_blank">' + escapeHtml(label) + "</a>";
+    });
+    return s;
+  }
+
+  function flushParagraph(){
+    if(paragraph.length){
+      html.push("<p>" + inline(paragraph.join(" ")) + "</p>");
+      paragraph = [];
+    }
+  }
+
+  function flushList(){
+    if(listType){
+      html.push("</" + listType + ">");
+      listType = null;
+    }
+  }
+
+  function flushTable(){
+    if(!table.length) return;
+    let out = '<div class="table-wrap"><table>';
+    table.forEach(function(row, index){
+      const cells = row.split("|").slice(1, -1).map(function(c){ return c.trim(); });
+      if(cells.every(function(c){ return /^:?-{3,}:?$/.test(c); })){
+        return;
+      }
+      out += "<tr>";
+      cells.forEach(function(cell){
+        out += index === 0 ? "<th>" + inline(cell) + "</th>" : "<td>" + inline(cell) + "</td>";
+      });
+      out += "</tr>";
+    });
+    out += "</table></div>";
+    html.push(out);
+    table = [];
+  }
+
+  lines.forEach(function(line){
+    const trimmed = line.trim();
+    if(trimmed.startsWith("```")){
+      flushParagraph();
+      flushList();
+      flushTable();
+      if(!inCode){
+        inCode = true;
+        code = [];
+        codeLang = trimmed.slice(3).trim();
+      }else{
+        html.push('<pre><code class="language-' + escapeHtml(codeLang || "text") + '">' + highlightCode(code.join("\n"), codeLang) + "</code></pre>");
+        inCode = false;
+        codeLang = "";
+      }
+      return;
+    }
+    if(inCode){
+      code.push(line);
+      return;
+    }
+    if(/^\|.*\|$/.test(trimmed)){
+      flushParagraph();
+      flushList();
+      table.push(trimmed);
+      return;
+    }
+    flushTable();
+    if(!trimmed){
+      flushParagraph();
+      flushList();
+      return;
+    }
+    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if(heading){
+      flushParagraph();
+      flushList();
+      const level = Math.min(heading[1].length, 4);
+      html.push("<h" + level + ">" + inline(heading[2]) + "</h" + level + ">");
+      return;
+    }
+    const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+    if(bullet){
+      flushParagraph();
+      if(listType !== "ul"){
+        flushList();
+        html.push("<ul>");
+        listType = "ul";
+      }
+      html.push("<li>" + inline(bullet[1]) + "</li>");
+      return;
+    }
+    const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+    if(ordered){
+      flushParagraph();
+      if(listType !== "ol"){
+        flushList();
+        html.push("<ol>");
+        listType = "ol";
+      }
+      html.push("<li>" + inline(ordered[1]) + "</li>");
+      return;
+    }
+    paragraph.push(trimmed);
+  });
+
+  if(inCode){
+    html.push('<pre><code class="language-' + escapeHtml(codeLang || "text") + '">' + highlightCode(code.join("\n"), codeLang) + "</code></pre>");
+  }
+  flushParagraph();
+  flushList();
+  flushTable();
+  return html.join("");
+}
+
+function sanitizeDisplayText(input){
+  const source = String(input || "").replace(/\r\n/g, "\n").split("\n");
+  const cleaned = [];
+  let inFence = false;
+  source.forEach(function(line){
+    const trimmed = line.trim();
+    if(trimmed.startsWith("```")){
+      inFence = !inFence;
+      cleaned.push(line);
+      return;
+    }
+    if(!inFence){
+      if(/^回测报告：\s*\/reports\//.test(trimmed)) return;
+      if(trimmed === "策略文档已完成。" || trimmed === "策略文档已完成") return;
+      if(/^Strategy\s*=/.test(trimmed)) return;
+    }
+    cleaned.push(line);
+  });
+  return cleaned.join("\n").trim();
+}
+
+function refreshStageLocks(){
+  for(let i = 1; i <= 5; i++){
+    const el = E("st" + i);
+    if(!el) continue;
+    el.classList.remove("active", "done", "pending");
+    if(i === state.currentStage) el.classList.add("active");
+    if(!state.isComplete){
+      if(i < state.workflowStage) el.classList.add("done");
+      if(i > state.workflowStage) el.classList.add("pending");
+    }
+  }
+}
+
+function getBacktestSymbol(){
+  const el = E("backtestSymbol");
+  return (el && el.value) || state.selectedBacktestSymbol || "RB0";
+}
+
+function setBacktestSymbol(value){
+  state.selectedBacktestSymbol = value || "RB0";
+  state.backtestSummary = null;
+  state.reportUrl = "";
+  state.reportDataFiles = {};
+  state.multiSymbolResults = null;
+  if(state.currentStage === 3) renderStage(3);
+}
+
+function getSelectedBacktestSymbols(){
+  const boxes = document.querySelectorAll(".symbol-pick input[type=checkbox]");
+  const selected = [];
+  boxes.forEach(function(box){
+    if(box.checked) selected.push(box.value);
+  });
+  if(selected.length) return selected;
+  return state.selectedBacktestSymbols && state.selectedBacktestSymbols.length ? state.selectedBacktestSymbols : [getBacktestSymbol()];
+}
+
+function setBacktestSymbolSelection(symbol, checked){
+  const list = state.selectedBacktestSymbols || [];
+  if(checked && list.indexOf(symbol) < 0) list.push(symbol);
+  if(!checked){
+    const idx = list.indexOf(symbol);
+    if(idx >= 0) list.splice(idx, 1);
+  }
+  state.selectedBacktestSymbols = list;
+}
+
+function renderBacktestControls(){
+  const symbols = state.symbols && Object.keys(state.symbols).length ? state.symbols : {"RB0":"螺纹钢"};
+  let html = '<div class="backtest-controls">';
+  html += '<label for="backtestSymbol">回测品种</label>';
+  html += '<select id="backtestSymbol" onchange="setBacktestSymbol(this.value)">';
+  Object.keys(symbols).forEach(function(symbol){
+    const selected = symbol === (state.selectedBacktestSymbol || "RB0") ? " selected" : "";
+    html += '<option value="' + escapeHtml(symbol) + '"' + selected + '>' + escapeHtml(symbol + " · " + symbols[symbol]) + '</option>';
+  });
+  html += '</select>';
+  html += '<button class="btn" onclick="goToBacktest()">' + (state.backtestSummary ? "重新回测" : "运行回测") + '</button>';
+  html += '<button class="btn secondary" onclick="goToMultiSymbolBacktest()">多品种初筛</button>';
+  html += '<span class="hint">默认使用日线、近五年数据；可先多品种初筛，再选择主样本进入检查和分析。</span>';
+  html += '<div class="symbol-picks">';
+  Object.keys(symbols).forEach(function(symbol){
+    const checked = (state.selectedBacktestSymbols || []).indexOf(symbol) >= 0 ? " checked" : "";
+    html += '<label class="symbol-pick"><input type="checkbox" value="' + escapeHtml(symbol) + '"' + checked + ' onchange="setBacktestSymbolSelection(this.value,this.checked)"> ' + escapeHtml(symbol + " · " + symbols[symbol]) + '</label>';
+  });
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+function renderBacktestStage(){
+  if(!state.backtestSummary && !state.reportUrl){
+    const controls = renderBacktestControls();
+    const symbol = state.selectedBacktestSymbol || "RB0";
+    return '<div class="doc">' + controls + '<div class="empty-state"><p>已选择 ' + escapeHtml(symbol) + '，点击“运行回测”生成该品种报告。</p></div></div>';
+  }
+  let html = '<div class="doc">';
+  html += renderBacktestControls();
+  html += stage3BriefHtml(state.backtestSummary);
+  html += multiSymbolResultsHtml(state.multiSymbolResults);
+  if(state.reportUrl){
+    html += '<iframe class="report-frame" data-report-src="' + escapeHtml(state.reportUrl) + '" title="回测报告" scrolling="no"></iframe>';
+  }else{
+    html += '<div class="empty-state"><p>回测报告生成中</p></div>';
+  }
+  const files = state.reportDataFiles || {};
+  if(files.trades || files.equity || files.bars){
+    html += '<div class="report-actions">';
+    if(files.trades) html += '<a href="' + escapeHtml(files.trades) + '" target="_blank">交易明细</a>';
+    if(files.equity) html += '<a href="' + escapeHtml(files.equity) + '" target="_blank">资金曲线</a>';
+    if(files.bars) html += '<a href="' + escapeHtml(files.bars) + '" target="_blank">信号K线数据</a>';
+    html += "</div>";
+  }
+  html += state.stageActions[3] || "";
+  html += "</div>";
+  return html;
+}
+
+function multiSymbolResultsHtml(result){
+  if(!result || !result.symbols || !result.symbols.length) return "";
+  let html = '<div class="decision-strip">';
+  html += '<h3>多品种初筛</h3>';
+  if(result.recommendation){
+    html += '<div class="fit-recommend">' + escapeHtml(result.recommendation) + '</div>';
+  }
+  html += '<div class="table-wrap"><table class="fit-table"><thead><tr>';
+  ["品种","适配分","净利润","夏普","回撤","交易","建议"].forEach(function(h){
+    html += '<th>' + escapeHtml(h) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  const rows = result.symbols.slice().sort(function(a,b){ return Number(b.fit_score || 0) - Number(a.fit_score || 0); });
+  rows.forEach(function(row){
+    const isBest = row.symbol === result.recommended_symbol;
+    html += '<tr>';
+    html += '<td>' + (isBest ? '<strong>' : '') + escapeHtml(row.symbol + " · " + (row.name || "")) + (isBest ? '</strong>' : '') + '</td>';
+    if(row.error){
+      html += '<td colspan="5">回测失败：' + escapeHtml(row.error) + '</td>';
+      html += '<td>' + escapeHtml(row.advice || "") + '</td>';
+    }else{
+      html += '<td>' + escapeHtml(fmtNumber(row.fit_score, 1)) + '</td>';
+      html += '<td class="' + (Number(row.net_profit || 0) >= 0 ? 'pos' : 'neg') + '">' + escapeHtml(fmtNumber(row.net_profit, 0)) + '</td>';
+      html += '<td>' + escapeHtml(fmtNumber(row.sharpe_ratio, 2)) + '</td>';
+      html += '<td>' + escapeHtml(fmtPercent(row.max_drawdown_pct)) + '</td>';
+      html += '<td>' + escapeHtml(fmtNumber(row.total_trades, 0)) + '</td>';
+      html += '<td>' + escapeHtml(row.advice || "") + '</td>';
+    }
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  html += '<p>推荐品种会自动作为当前阶段三主报告，后续阶段四和阶段五将优先基于这个主样本检查和分析。</p>';
+  html += '</div>';
+  return html;
+}
+
+function stage3BriefHtml(summary){
+  summary = summary || {};
+  const behavior = summary.behavior_diagnostics || {};
+  const flags = behavior.flags || [];
+  let html = '<div class="decision-strip">';
+  html += '<h3>回测摘要</h3>';
+  html += '<div class="decision-meta">';
+  html += '<span class="decision-pill">收益率 ' + escapeHtml(fmtPercent(summary.total_return_pct)) + '</span>';
+  html += '<span class="decision-pill">净利润 ' + escapeHtml(fmtNumber(summary.net_profit, 0)) + '</span>';
+  html += '<span class="decision-pill">最大回撤 ' + escapeHtml(fmtPercent(summary.max_drawdown_pct)) + '</span>';
+  html += '<span class="decision-pill">夏普 ' + escapeHtml(fmtNumber(summary.sharpe_ratio, 2)) + '</span>';
+  html += '<span class="decision-pill">交易 ' + escapeHtml(fmtNumber(summary.total_trades, 0)) + ' 笔</span>';
+  html += '</div>';
+  const warnings = flags.slice(0,1);
+  if(warnings.length){
+    html += '<p><strong>行为提示：</strong>' + escapeHtml(warnings.join("；")) + '</p>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function noTradeDiagnosisHtml(summary){
+  summary = summary || {};
+  const rows = summary.no_trade_diagnosis || [];
+  if(!rows.length) return "";
+  let html = '<div class="decision-strip"><h3>无交易诊断</h3>';
+  rows.forEach(function(item){
+    html += '<p><strong>' + escapeHtml(item.title || "原因") + '</strong>：' + escapeHtml(item.detail || "") + '</p>';
+    if(item.suggestion){
+      html += '<p>建议：' + escapeHtml(item.suggestion) + '</p>';
+    }
+  });
+  html += '</div>';
+  return html;
+}
+
+function behaviorDiagnosticsHtml(summary){
+  summary = summary || {};
+  const b = summary.behavior_diagnostics || {};
+  if(!b || (!b.exit_reason && !b.flags && b.avg_bars_held == null)) return "";
+  let html = '<div class="decision-strip"><h3>策略行为诊断</h3>';
+  html += '<div class="decision-meta">';
+  html += '<span class="decision-pill">平均持仓 ' + escapeHtml((b.avg_bars_held || 0) + " 根K线") + '</span>';
+  html += '<span class="decision-pill">最长持仓 ' + escapeHtml((b.max_bars_held || 0) + " 根K线") + '</span>';
+  html += '<span class="decision-pill">信号转化率 ' + escapeHtml(((Number(b.signal_to_entry_rate || 0) * 100).toFixed(1)) + "%") + '</span>';
+  html += '</div>';
+  (b.flags || []).slice(0,4).forEach(function(flag){
+    html += '<p>' + escapeHtml(flag) + '</p>';
+  });
+  const exits = b.exit_reason || [];
+  if(exits.length){
+    html += '<table><thead><tr><th>退出方式</th><th>说明</th><th>次数</th><th>占比</th><th>净盈利</th><th>平均持仓</th></tr></thead><tbody>';
+    exits.slice(0,5).forEach(function(row){
+      html += '<tr><td>' + escapeHtml(exitReasonLabel(row.reason)) + '</td><td>' + escapeHtml(exitReasonNote(row.reason)) + '</td><td>' + escapeHtml(row.trade_count || 0) + '</td><td>' + escapeHtml(((Number(row.share || 0) * 100).toFixed(1)) + "%") + '</td><td>' + escapeHtml(fmtNumber(row.net_profit, 2)) + '</td><td>' + escapeHtml((row.avg_bars_held || 0) + " 根K线") + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  }
+  html += '</div>';
+  return html;
+}
+function exitReasonLabel(reason){
+  const labels = {
+    strategy_trailing_stop: "策略动态移动止损",
+    stop_loss: "固定止损",
+    strategy_exit: "策略主动离场",
+    signal_reversal: "反向信号",
+    reverse_signal: "反向信号",
+    final_close: "期末强制平仓",
+    exit_signal: "只平仓信号"
+  };
+  return labels[reason] || reason || "未记录";
+}
+
+function exitReasonNote(reason){
+  const notes = {
+    strategy_trailing_stop: "交易由策略动态移动止损线结束，说明保护线随持仓推进参与了交易闭环。",
+    stop_loss: "交易触发通用固定止损，需要检查止损是否过紧或入场是否容易被噪声打掉。",
+    strategy_exit: "交易由策略代码中的主动离场条件结束，需要对照阶段1规则。",
+    signal_reversal: "交易由反向信号结束，通常意味着方向切换。",
+    reverse_signal: "交易由反向信号结束，通常意味着方向切换。",
+    final_close: "回测结束时仍有持仓，因此被强制平仓。",
+    exit_signal: "交易由只平仓信号结束，没有同时反手开仓。"
+  };
+  return notes[reason] || "该退出原因来自交易明细，需要结合策略代码和阶段1规则继续解释。";
+}
+function fmtPercent(value){
+  const n = Number(value || 0);
+  return n.toFixed(2) + "%";
+}
+
+function fmtNumber(value, digits){
+  const n = Number(value || 0);
+  return n.toLocaleString("zh-CN", {maximumFractionDigits: digits == null ? 2 : digits});
+}
+
+function metricCardsHtml(summary){
+  summary = summary || {};
+  const cards = [
+    ["总收益率", fmtPercent(summary.total_return_pct)],
+    ["净利润", fmtNumber(summary.net_profit, 0)],
+    ["最大回撤", fmtPercent(summary.max_drawdown_pct)],
+    ["夏普比率", fmtNumber(summary.sharpe_ratio, 2)],
+    ["交易次数", fmtNumber(summary.total_trades, 0)],
+    ["成本/净利润", fmtPercent(summary.cost_profit_ratio)]
+  ];
+  let html = '<div class="evidence-grid">';
+  cards.forEach(function(item){
+    html += '<div class="evidence-card"><div class="v">' + escapeHtml(item[1]) + '</div><div class="k">' + escapeHtml(item[0]) + '</div></div>';
+  });
+  html += '</div>';
+  return html;
+}
+function foldHtml(title, body, open){
+  return '<details class="fold"' + (open ? " open" : "") + '><summary>' + escapeHtml(title) + '</summary><div class="fold-body">' + body + '</div></details>';
+}
+
+function extractCodeBlock(text){
+  text = String(text || "");
+  const match = text.match(/```(?:python|py)?\s*\n([\s\S]*?)```/i);
+  return match ? match[1].trim() : text.trim();
+}
+
+function pickFunctionSnippet(code, name, maxLines){
+  const lines = String(code || "").split(/\r?\n/);
+  const start = lines.findIndex(function(line){
+    return new RegExp("^\\s*def\\s+" + name + "\\s*\\(").test(line);
+  });
+  if(start < 0) return "";
+  const indent = (lines[start].match(/^\s*/) || [""])[0].length;
+  let end = lines.length;
+  for(let i = start + 1; i < lines.length; i++){
+    const line = lines[i];
+    if(!line.trim()) continue;
+    const currentIndent = (line.match(/^\s*/) || [""])[0].length;
+    if(currentIndent <= indent && (/^\s*def\s+/.test(line) || /^\s*class\s+/.test(line))){
+      end = i;
+      break;
+    }
+  }
+  return lines.slice(start, Math.min(end, start + (maxLines || 36))).join("\n");
+}
+
+function snippetHtml(title, note, code){
+  if(!code) return "";
+  return '<div class="snippet"><div class="snippet-title">' + escapeHtml(title) + '</div>' +
+    '<div class="snippet-note">' + escapeHtml(note) + '</div>' +
+    '<pre><code class="language-python">' + highlightCode(code, "python") + '</code></pre></div>';
+}
+
+function renderStage2Workbench(){
+  const code = cleanDisplayCode(state.stage2Code || extractCodeBlock(state.stageContent[2] || ""));
+  if(!code || code.indexOf("def ") < 0){
+    return state.stageContent[2] ? mdToHtml(state.stageContent[2]) : renderStagePreviewInner(2);
+  }
+  let html = '<div class="model-card">';
+  html += '<h3>建模结果</h3>';
+  html += '<p>默认只展示最需要复核的代码片段。完整代码仍然保留，但收在下方，避免把研究注意力耗在整段实现细节里。</p>';
+  html += '<div class="research-flow">';
+  html += '<div class="flow-step"><strong>指标计算</strong>均线、锁定均线、OBV、突破通道。</div>';
+  html += '<div class="flow-step"><strong>入场信号</strong>阶段一规则翻译为 signal_raw。</div>';
+  html += '<div class="flow-step"><strong>出场风控</strong>动态止损线、K值、退出原因。</div>';
+  html += '<div class="flow-step"><strong>回测接口</strong>成交、成本、手数由固定引擎处理。</div>';
+  html += '</div></div>';
+  html += '<div class="model-snippets">';
+  html += snippetHtml("1. 指标计算", "对应阶段一的 VWMA、锁定均线、OBV 和 N周期通道，是后续交易判断的输入。", pickFunctionSnippet(code, "compute_indicators", 44));
+  html += snippetHtml("2. 入场候选", "这里只判断是否出现策略信号，不假设真实成交；成交时点由回测引擎统一处理。", pickFunctionSnippet(code, "_entry_candidates", 34));
+  html += snippetHtml("3. 信号与止损", "这里输出 signal_raw、动态止损价、K值和退出原因，方便阶段三/四复核。", pickFunctionSnippet(code, "generate_signals", 54));
+  html += '</div>';
+  html += foldHtml("查看完整策略代码", '<pre><code class="language-python">' + highlightCode(code, "python") + '</code></pre>', false);
+  return html;
+}
+
+function cleanDisplayCode(code){
+  return String(code || "")
+    .split(/\r?\n/)
+    .filter(function(line){ return !/^\s*Strategy\s*=/.test(line.trim()); })
+    .join("\n")
+    .trim();
+}
+
+function renderStagePreviewInner(stage){
+  const meta = stages[stage];
+  const intro = meta.workText || meta.empty;
+  return '<div class="start-panel">' +
+    '<p>' + escapeHtml(intro) + '</p>' +
+    '</div>';
+}
+
+function renderStagePreviewHtml(stage){
+  return '<div class="doc">' + renderStagePreviewInner(stage) + '</div>';
+}
+
+function stage1GateHtml(){
+  const gate = state.strategySpec && state.strategySpec.stage2_gate ? state.strategySpec.stage2_gate : null;
+  if(!gate || gate.stage2_allowed) return "";
+  const questions = gate.blocking_questions || [];
+  let html = '<div class="stage-intro">';
+  html += '<p><strong>阶段1仍需确认</strong></p>';
+  html += '<p>点击进入阶段2时，平台会弹出确认框。确认后，这些规则会作为阶段2代码编译依据。</p>';
+  if(questions.length){
+    html += '<ul>';
+    questions.slice(0,5).forEach(function(q){ html += '<li>' + escapeHtml(q) + '</li>'; });
+    html += '</ul>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function stage1ActionHtml(){
+  if(state.isComplete) return "";
+  const gate = state.strategySpec && state.strategySpec.stage2_gate ? state.strategySpec.stage2_gate : null;
+  if(gate && gate.stage2_allowed === false){
+    return stage1GateHtml() + '<div class="action-row"><button class="btn" onclick="goToNextStage(2)">进入阶段2：建模</button></div>';
+  }
+  return '<div class="action-row"><button class="btn" onclick="goToNextStage(2)">进入阶段2：建模</button></div>';
+}
+
+function iterationExperimentHtml(){
+  const it = state.iteration || {};
+  const parent = it.parent_name || it.parent_strategy || "";
+  let html = '<div class="stage-intro">';
+  html += '<p><strong>迭代实验单</strong></p>';
+  html += '<p>父策略：' + escapeHtml(parent || "未记录") + '</p>';
+  html += '<p>迭代类型：' + escapeHtml(it.iteration_type || "未记录") + '</p>';
+  html += '<p>研究假设：' + escapeHtml(it.hypothesis || it.change_summary || "未填写") + '</p>';
+  if(it.success_metrics && it.success_metrics.length){
+    html += '<p>成功标准：' + escapeHtml(it.success_metrics.slice(0,3).join("；")) + '</p>';
+  }
+  if(it.anti_overfit_checks && it.anti_overfit_checks.length){
+    html += '<p>防过拟合检查：' + escapeHtml(it.anti_overfit_checks.slice(0,3).join("；")) + '</p>';
+  }
+  const cmp = state.iterationCompare || {};
+  if(cmp.status && cmp.status !== "ok"){
+    html += '<p>父子对比：' + escapeHtml(cmp.status) + '</p>';
+  }else if(cmp.rows && cmp.rows.length){
+    html += '<div class="table-wrap"><table><thead><tr><th>指标</th><th>父版本</th><th>当前版本</th><th>变化</th></tr></thead><tbody>';
+    cmp.rows.forEach(function(row){
+      html += '<tr><td>' + escapeHtml(row.metric) + '</td><td>' + escapeHtml(fmtNumber(row.parent, 2)) + '</td><td>' + escapeHtml(fmtNumber(row.child, 2)) + '</td><td>' + escapeHtml(fmtNumber(row.delta, 2)) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderStage(stage){
+  state.currentStage = stage;
+  updateGuide(stage);
+  refreshStageLocks();
+  if(stage === 3){
+    E("body").innerHTML = renderBacktestStage();
+    loadEmbeddedReports();
+    return;
+  }
+  const meta = stages[stage];
+  let content = state.stageContent[stage]
+    ? mdToHtml(state.stageContent[stage])
+    : (!state.isComplete ? renderStagePreviewInner(stage) : '<div class="empty-state"><p>' + meta.empty + "</p></div>");
+  if(stage === 2){
+    content = renderStage2Workbench();
+  }
+  if(stage === 4 && state.stageContent[4]){
+    content = content;
+  }
+  if(stage === 5 && state.stageContent[5]){
+    content = content;
+    if(state.isComplete && state.activeStrategy){
+      content += '<div class="action-row"><button class="btn" onclick="showIterationModal()">基于此策略创建迭代版本</button></div>';
+    }
+  }
+  if(stage === 1 && state.iteration && state.iteration.parent_strategy){
+    content = iterationExperimentHtml() + content;
+  }
+  const actions = state.stageActions[stage] || "";
+  E("body").innerHTML = '<div class="doc">' + content + actions + "</div>";
+}
+
+function resizeReportFrame(frame){
+  try{
+    const doc = frame.contentDocument || frame.contentWindow.document;
+    if(!doc) return;
+    if(doc.documentElement) doc.documentElement.style.overflow = "hidden";
+    if(doc.body) doc.body.style.overflow = "hidden";
+    if(!frame._reportResizeObserver && frame.contentWindow && frame.contentWindow.ResizeObserver && doc.body){
+      frame._reportResizeObserver = new frame.contentWindow.ResizeObserver(function(){
+        resizeReportFrame(frame);
+      });
+      frame._reportResizeObserver.observe(doc.body);
+    }
+    const height = Math.max(
+      doc.documentElement ? doc.documentElement.scrollHeight : 0,
+      doc.body ? doc.body.scrollHeight : 0,
+      760
+    );
+    frame.style.height = (height + 24) + "px";
+  }catch(e){}
+}
+
+async function loadEmbeddedReports(){
+  document.querySelectorAll("details.fold").forEach(function(detail){
+    if(detail.dataset.boundReportToggle) return;
+    detail.dataset.boundReportToggle = "1";
+    detail.addEventListener("toggle", function(){
+      if(detail.open) loadEmbeddedReports();
+    });
+  });
+  const frames = document.querySelectorAll("iframe[data-report-src]:not([data-loaded])");
+  for(const frame of frames){
+    const detail = frame.closest("details");
+    if(detail && !detail.open) continue;
+    const url = frame.getAttribute("data-report-src");
+    frame.setAttribute("scrolling","no");
+    frame.dataset.loaded = "loading";
+    try{
+      const r = await fetch(url,{cache:"no-store"});
+      if(!r.ok) throw new Error("HTTP " + r.status);
+      frame.onload = function(){ resizeReportFrame(frame); };
+      frame.srcdoc = await r.text();
+      frame.dataset.loaded = "ok";
+      setTimeout(function(){ resizeReportFrame(frame); }, 300);
+      setTimeout(function(){ resizeReportFrame(frame); }, 1200);
+    }catch(e){
+      frame.outerHTML = '<div class="empty-state"><p>回测报告加载失败</p><p style="font-size:12px">请确认服务已重启，或使用下方链接打开完整报告。</p></div>';
+    }
+  }
+}
+
+async function saveStageArtifact(stage, content){
+  if(!content) return;
+  if(!state.activeStrategy || state.isComplete) return;
+  try{
+    const r = await fetch("/api/strategy/artifact",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({stage:stage, content:content, strategy:state.activeStrategy})
+    });
+    return await r.json();
+  }catch(e){
+    return {error:e.message};
+  }
+}
+
+function hydrateWorkspace(current){
+  resetState();
+  state.activeStrategy = current.active || "";
+  state.isComplete = !!(current.complete || current.scope === "complete");
+  state.stageContent[1] = current.readme || "";
+  state.stage2Code = current.code || "";
+  state.stageContent[2] = current.code ? "```python\n" + current.code + "\n```" : "";
+  state.stageContent[4] = current.check_report || "";
+  state.stageContent[5] = current.analysis_template || "";
+  state.reportUrl = current.report_url || "";
+  state.reportDataFiles = current.data_files || {};
+  state.symbols = Object.assign({}, state.symbols || {"RB0":"螺纹钢"}, current.symbols || {});
+  const inferredSymbol = current.report_stats && current.report_stats.symbol ? current.report_stats.symbol : "RB0";
+  state.selectedBacktestSymbol = inferredSymbol;
+  state.backtestSummary = current.report_stats ? Object.assign({symbol:inferredSymbol}, current.report_stats) : null;
+  state.strategySpec = current.strategy_spec || null;
+  state.iteration = current.iteration || null;
+  state.iterationSuggestions = current.iteration_suggestions || [];
+  state.iterationCompare = current.iteration_compare || null;
+  if(!state.isComplete){
+    let inferredStage = 1;
+    if(state.stageContent[1]){
+      state.stageActions[1] = stage1ActionHtml();
+    }
+    if(state.stageContent[2]){
+      inferredStage = 2;
+      state.stageActions[2] = '<div class="action-row"><button class="btn" onclick="goToBacktest()">进入阶段3：回测</button></div>';
+    }
+    if(state.backtestSummary || state.reportUrl){
+      inferredStage = 3;
+      state.stageActions[3] = '<div class="action-row"><button class="btn" onclick="goToNextStage(4)">进入阶段4：检查</button></div>';
+    }
+    if(state.stageContent[4]){
+      inferredStage = 4;
+      state.stageActions[4] = '<div class="action-row"><button class="btn" onclick="goToNextStage(5)">进入阶段5：分析</button></div>';
+    }
+    if(state.stageContent[5]){
+      inferredStage = 5;
+      state.stageActions[5] = '<div class="action-row"><button class="btn" onclick="completeCurrentStrategy()">保存为完整策略</button></div>';
+    }
+    state.workflowStage = Math.max(state.workflowStage, inferredStage);
+  }
+  if(state.isComplete){
+    state.workflowStage = 5;
+  }
+}
+
+async function loadOverview(){
+  const list = await G("/api/strategies");
+  const current = await G("/api/strategy");
+  populateHistory(list);
+  const selected = list.find(function(item){ return item.id === current.active; });
+  const label = current.scope === "draft"
+    ? ((current.meta && current.meta.name) || "新策略草稿")
+    : ((selected && selected.name) || current.active || "未选择");
+  E("currentStrategyLabel").textContent = "当前策略：" + label;
+  hydrateWorkspace(current);
+  const iterateBtn = E("iterateBtn");
+  if(iterateBtn){
+    iterateBtn.style.display = state.isComplete && state.activeStrategy ? "inline-flex" : "none";
+  }
+  const exportBtn = E("exportBtn");
+  if(exportBtn){
+    exportBtn.style.display = state.activeStrategy && (state.stageContent[1] || state.stageContent[2] || state.backtestSummary) ? "inline-flex" : "none";
+  }
+}
+
+async function syncActiveStrategyFromChat(data){
+  if(!data || !data.active) return;
+  state.activeStrategy = data.active;
+  state.isComplete = data.scope !== "draft";
+  if(data.scope === "draft"){
+    E("currentStrategyLabel").textContent = "当前策略：新策略草稿";
+  }
+  const iterateBtn = E("iterateBtn");
+  if(iterateBtn) iterateBtn.style.display = state.isComplete && state.activeStrategy ? "inline-flex" : "none";
+  const exportBtn = E("exportBtn");
+  if(exportBtn) exportBtn.style.display = state.activeStrategy ? "inline-flex" : "none";
+  try{
+    populateHistory(await G("/api/strategies"));
+  }catch(e){}
+}
+
+function exportReport(){
+  if(!state.activeStrategy){
+    addMessage("sys", "当前还没有可导出的策略。");
+    return;
+  }
+  window.open("/export/report", "_blank");
+}
+
+async function loadWorkflowStage(){
+  const current = await G("/api/strategy");
+  hydrateWorkspace(current);
+  if(state.isComplete){
+    renderStage(1);
+    return;
+  }
+  try{
+    const stageResp = await G("/api/stage");
+    state.workflowStage = Math.max(state.workflowStage, stageResp.stage || 1);
+  }catch(e){
+    state.workflowStage = Math.max(state.workflowStage, 1);
+  }
+  renderStage(Math.min(state.workflowStage, 5));
+}
+
+async function switchStrategy(id){
+  await fetch("/api/strategy/switch?id=" + encodeURIComponent(id), {method:"POST"});
+  E("chat").innerHTML = "";
+  E("historyPanel").classList.remove("show");
+  await loadOverview();
+  await loadWorkflowStage();
+}
+
+async function switchStage(stage){
+  renderStage(stage);
+}
+
+async function advanceWorkflow(stage){
+  const r = await fetch("/api/stage/switch?stage=" + stage,{method:"POST"});
+  if(!r.ok){
+    const err = await r.json().catch(function(){ return {}; });
+    addMessage("sys", err.detail || "阶段推进失败");
+    return false;
+  }
+  const data = await r.json();
+  state.workflowStage = data.stage || stage;
+  return true;
+}
+
+function stage1ConfirmMessage(){
+  const gate = state.strategySpec && state.strategySpec.stage2_gate ? state.strategySpec.stage2_gate : null;
+  const questions = gate && gate.blocking_questions ? gate.blocking_questions : [];
+  let msg = "进入阶段2前，请确认以下内容将作为代码生成依据：\n\n";
+  if(questions.length){
+    questions.slice(0,6).forEach(function(q, idx){
+      msg += (idx + 1) + ". " + q + "\n";
+    });
+  }else{
+    msg += "阶段1策略说明中的参数、公式、入场、出场和风控规则。\n";
+  }
+  msg += "\n点击“确定”表示你接受这些规则/默认假设，阶段2将只按当前阶段1规格翻译代码。";
+  return msg;
+}
+
+async function ensureStage1ConfirmedBeforeStage2(){
+  try{
+    const current = await G("/api/strategy");
+    state.strategySpec = current.strategy_spec || state.strategySpec;
+  }catch(e){}
+  const gate = state.strategySpec && state.strategySpec.stage2_gate ? state.strategySpec.stage2_gate : null;
+  if(!gate || gate.stage2_allowed !== false) return true;
+  if(!confirm(stage1ConfirmMessage())) return false;
+  const r = await fetch("/api/stage1/confirm", {method:"POST"});
+  if(!r.ok){
+    const err = await r.json().catch(function(){ return {}; });
+    addMessage("sys", err.detail || "阶段1确认失败");
+    return false;
+  }
+  const data = await r.json();
+  try{
+    const current = await G("/api/strategy");
+    state.strategySpec = current.strategy_spec || null;
+  }catch(e){
+    if(state.strategySpec && state.strategySpec.stage2_gate){
+      state.strategySpec.stage2_gate.stage2_allowed = true;
+      state.strategySpec.stage2_gate.user_confirmed = true;
+    }
+  }
+  addMessage("sys","阶段1关键规则已确认，可以进入阶段2建模。");
+  return !!data.ok;
+}
+
+async function goToNextStage(stage){
+  if(stage === 2){
+    const confirmed = await ensureStage1ConfirmedBeforeStage2();
+    if(!confirmed) return;
+  }
+  const ok = await advanceWorkflow(stage);
+  if(!ok) return;
+  renderStage(stage);
+  const prompts = {
+    2: "请根据阶段1整理出的策略说明生成策略代码。",
+    3: "请执行回测。",
+    4: "请检查策略说明、代码和回测结果是否一致。",
+    5: "请基于真实回测结果生成分析报告。"
+  };
+  const prompt = prompts[stage] || "";
+  if(prompt){
+    await sendText(prompt);
+  }
+}
+
+async function validateStage2(){
+  try{
+    const r = await fetch("/api/stage2/validate",{method:"POST"});
+    const data = await r.json();
+    if(data.error){
+      state.stageContent[2] = "## 阶段2校验失败\n\n" + data.error;
+      state.stageActions[2] = "";
+      renderStage(2);
+      return false;
+    }
+    if(!state.stageContent[2] || state.stageContent[2].indexOf("```python") < 0){
+      try{
+        const current = await G("/api/strategy");
+        if(current.code){
+          state.stage2Code = current.code;
+          state.stageContent[2] = "```python\n" + current.code + "\n```";
+        }
+      }catch(e){}
+    }
+    state.stageActions[2] = '<div class="action-row"><button class="btn" onclick="goToBacktest()">进入阶段3：回测</button></div>';
+    let msg = "阶段2校验通过，策略代码已保留在阶段2工作区。";
+    if(data.warnings && data.warnings.length){
+      msg += "\n\n校验提醒：\n- " + data.warnings.join("\n- ");
+    }
+    addMessage("sys", msg);
+    return true;
+  }catch(e){
+    state.stageContent[2] = "## 阶段2校验失败\n\n" + e.message;
+    state.stageActions[2] = "";
+    renderStage(2);
+    return false;
+  }
+}
+
+async function goToBacktest(){
+  if(!state.isComplete && state.workflowStage < 2){
+    addMessage("sys","需要先完成阶段2，再进入回测。");
+    return;
+  }
+  if(!state.isComplete){
+    const valid = await validateStage2();
+    if(!valid) return;
+    const ok = await advanceWorkflow(3);
+    if(!ok) return;
+  }
+  await runBacktest();
+}
+
+async function goToMultiSymbolBacktest(){
+  if(!state.isComplete && state.workflowStage < 2){
+    addMessage("sys","需要先完成阶段2，再进入多品种初筛。");
+    return;
+  }
+  if(!state.isComplete){
+    const valid = await validateStage2();
+    if(!valid) return;
+    const ok = await advanceWorkflow(3);
+    if(!ok) return;
+  }
+  await runMultiSymbolBacktest();
+}
+
+async function runBacktest(){
+  const btn = document.querySelector(".btn");
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = "回测中...";
+  }
+  try{
+    const r = await fetch("/api/backtest",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({symbol:getBacktestSymbol(), params:{}})
+    });
+    const data = await r.json();
+    if(data.error){
+      state.backtestSummary = null;
+      state.reportUrl = "";
+      state.reportDataFiles = {};
+      state.stageContent[3] = data.error;
+      renderStage(3);
+      addMessage("sys","回测失败：" + data.error);
+      return;
+    }
+    state.selectedBacktestSymbol = data.symbol || getBacktestSymbol();
+    state.backtestSummary = Object.assign({symbol:state.selectedBacktestSymbol}, data.details || {});
+    state.reportUrl = data.report_url || "";
+    state.reportDataFiles = data.data_files || {};
+    state.workflowStage = Math.max(state.workflowStage, 3);
+    state.stageActions[3] = state.isComplete ? "" : '<div class="action-row"><button class="btn" onclick="goToNextStage(4)">进入阶段4：检查</button></div>';
+    renderStage(3);
+    addMessage("sys","阶段3回测已完成，工作区已经更新为回测摘要和完整报告。");
+  }catch(e){
+    addMessage("sys","回测失败：" + e.message);
+  }finally{
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = "进入阶段3：回测";
+    }
+  }
+}
+
+async function runMultiSymbolBacktest(){
+  const btns = document.querySelectorAll(".btn");
+  btns.forEach(function(btn){ btn.disabled = true; });
+  try{
+    const r = await fetch("/api/backtest/batch",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({symbols:getSelectedBacktestSymbols(), params:{}})
+    });
+    const data = await r.json();
+    if(data.error){
+      state.backtestSummary = null;
+      state.reportUrl = "";
+      state.reportDataFiles = {};
+      state.stageContent[3] = data.error;
+      renderStage(3);
+      addMessage("sys","多品种初筛失败：" + data.error);
+      return;
+    }
+    state.multiSymbolResults = data;
+    state.selectedBacktestSymbol = data.recommended_symbol || state.selectedBacktestSymbol;
+    state.backtestSummary = Object.assign({symbol:state.selectedBacktestSymbol}, data.details || {});
+    state.reportUrl = data.report_url || "";
+    state.reportDataFiles = data.data_files || {};
+    state.workflowStage = Math.max(state.workflowStage, 3);
+    state.stageActions[3] = state.isComplete ? "" : '<div class="action-row"><button class="btn" onclick="goToNextStage(4)">进入阶段4：检查</button></div>';
+    renderStage(3);
+    addMessage("sys","多品种初筛已完成。" + (data.recommendation || ""));
+  }catch(e){
+    addMessage("sys","多品种初筛失败：" + e.message);
+  }finally{
+    btns.forEach(function(btn){ btn.disabled = false; });
+  }
+}
+
+async function completeCurrentStrategy(){
+  try{
+    const label = E("currentStrategyLabel").textContent || "";
+    const name = label.replace("当前策略：", "").trim() || state.activeStrategy;
+    const r = await fetch("/api/strategy/complete",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({name:name})
+    });
+    const data = await r.json();
+    if(data.error){
+      addMessage("sys","保存完整策略失败：" + data.error);
+      return;
+    }
+    addMessage("sys","当前策略已经归档为完整策略，后续可以直接查看五个阶段的历史结果。");
+    await loadOverview();
+    await loadWorkflowStage();
+  }catch(e){
+    addMessage("sys","保存完整策略失败：" + e.message);
+  }
+}
+
+function showIterationModal(){
+  if(!state.activeStrategy || !state.isComplete){
+    addMessage("sys","只有已完成的历史策略可以创建迭代版本。");
+    return;
+  }
+  E("iterationStatus").textContent = "";
+  E("iterationNote").value = "";
+  const label = E("currentStrategyLabel").textContent.replace("当前策略：", "").trim();
+  E("iterationName").value = label ? (label + " 迭代版") : "";
+  renderIterationIdeas();
+  E("iterationModal").classList.add("show");
+}
+
+function renderIterationIdeas(){
+  const box = E("iterationIdeas");
+  if(!box) return;
+  const items = state.iterationSuggestions && state.iterationSuggestions.length
+    ? state.iterationSuggestions
+    : [
+      {id:"parameter", type:"parameter", title:"参数敏感性", note:"扫描核心周期和阈值，建立基线参数稳定性。"},
+      {id:"multi_symbol", type:"multi_symbol", title:"多品种验证", note:"扩展到多个高流动性品种，检查是否依赖单一市场。"}
+    ];
+  box.innerHTML = "";
+  items.forEach(function(item, idx){
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "idea-btn";
+    btn.innerHTML = escapeHtml(item.title || "迭代思路") + "<br>" + escapeHtml((item.note || "").slice(0, 28));
+    btn.onclick = function(){ applyIterationIdea(item.id || ("idea_" + idx), item); };
+    box.appendChild(btn);
+  });
+}
+
+function applyIterationIdea(kind, dynamicIdea){
+  const label = E("currentStrategyLabel").textContent.replace("当前策略：", "").trim() || "策略";
+  const ideas = {
+    parameter: {
+      type: "parameter",
+      suffix: "参数敏感性",
+      note: "围绕当前回测门禁结果，优先扫描入场周期、出场周期、止损倍数和过滤阈值，判断是否存在稳健参数区间。"
+    },
+    exit_loosen: {
+      type: "entry_exit",
+      suffix: "出场放宽",
+      note: "当前策略若存在持仓过短或止损退出占比过高，尝试放宽出场条件或调整止损逻辑，验证是否能让趋势利润奔跑。"
+    },
+    direction_filter: {
+      type: "add_filter",
+      suffix: "方向过滤",
+      note: "针对主要亏损方向增加趋势过滤、均线方向过滤或成交量确认，降低弱趋势和反向信号带来的损耗。"
+    },
+    risk: {
+      type: "risk",
+      suffix: "风控调整",
+      note: "调整止损倍数、最大持仓、加仓条件和单笔风险暴露，重点观察最大回撤、连续亏损和收益回撤比。"
+    },
+    multi_symbol: {
+      type: "multi_symbol",
+      suffix: "多品种验证",
+      note: "保留当前策略逻辑，扩展到多个高流动性品种进行验证，判断结果是否只依赖单一品种或单一市场状态。"
+    }
+  };
+  const idea = dynamicIdea || ideas[kind] || ideas.parameter;
+  E("iterationType").value = idea.type;
+  E("iterationNote").value = idea.note;
+  E("iterationName").value = label + " - " + (idea.suffix || idea.title || "迭代版");
+}
+
+function closeIterationModal(){
+  E("iterationModal").classList.remove("show");
+}
+
+async function createIteration(){
+  if(!state.activeStrategy || !state.isComplete){
+    E("iterationStatus").textContent = "请选择一个已完成策略。";
+    return;
+  }
+  const payload = {
+    parent_strategy: state.activeStrategy,
+    iteration_type: E("iterationType").value,
+    note: E("iterationNote").value.trim(),
+    name: E("iterationName").value.trim()
+  };
+  E("iterationStatus").textContent = "创建中...";
+  try{
+    const r = await fetch("/api/strategy/iterate",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(payload)
+    });
+    const data = await r.json();
+    if(data.error){
+      E("iterationStatus").textContent = data.error;
+      return;
+    }
+    closeIterationModal();
+    E("chat").innerHTML = "";
+    addMessage("sys",
+      "已基于当前策略创建迭代草稿，不会覆盖原策略。\n\n" +
+      "迭代说明：" + (payload.note || "未填写") + "\n\n" +
+      "建议先在阶段1确认修改后的策略说明，再重新生成代码、回测、检查和分析。"
+    );
+    await loadOverview();
+    await loadWorkflowStage();
+    renderStage(1);
+  }catch(e){
+    E("iterationStatus").textContent = "创建失败：" + e.message;
+  }
+}
+
+function inferResponseStage(content, responseStage, fallbackStage){
+  const n = Number(responseStage);
+  if(n >= 1 && n <= 5) return n;
+  if(content && content.includes("```python")) return 2;
+  if(content && (content.includes("def compute_indicators") || content.includes("class "))) return 2;
+  return fallbackStage || state.workflowStage || state.currentStage || 1;
+}
+
+function maybeRenderUpdatedStage(stage){
+  if(state.currentStage === stage){
+    renderStage(stage);
+  }else{
+    refreshStageLocks();
+  }
+}
+
+function compactStage2Content(content){
+  content = String(content || "").trim();
+  const match = content.match(/```(?:python|py)?\s*\n([\s\S]*?)```/i);
+  const code = match ? match[1].trim() : content;
+  const before = match ? content.slice(0, match.index).trim() : "";
+  const summaryLines = before
+    .split(/\n+/)
+    .map(function(line){ return line.replace(/^[-*]\s*/, "").trim(); })
+    .filter(function(line){ return line && line.length <= 48 && !line.includes("好的") && !line.includes("遵照"); })
+    .slice(0, 4);
+  let output = "";
+  if(summaryLines.length){
+    output += summaryLines.map(function(line){ return "- " + line; }).join("\n") + "\n\n";
+  }
+  output += "```python\n" + code + "\n```";
+  return output;
+}
+
+async function processStageContent(content, responseStage, fallbackStage){
+  if(!content) return;
+  const targetStage = inferResponseStage(content, responseStage, fallbackStage);
+  if(targetStage === 1){
+    state.stageContent[1] = content;
+    if(!state.isComplete){
+      await saveStageArtifact(1, content);
+      try{
+        const current = await G("/api/strategy");
+        state.strategySpec = current.strategy_spec || null;
+      }catch(e){}
+    }
+    state.stageActions[1] = stage1ActionHtml();
+    state.workflowStage = Math.max(state.workflowStage, 1);
+    maybeRenderUpdatedStage(1);
+    return;
+  }
+  if(targetStage === 2){
+    state.stage2Code = extractCodeBlock(content);
+    state.stageContent[2] = compactStage2Content(content);
+    if(!state.isComplete){
+      const saved = await saveStageArtifact(2, content);
+      if(saved && saved.error){
+        addMessage("sys","阶段2代码保存失败：" + saved.error);
+        state.stageActions[2] = "";
+        maybeRenderUpdatedStage(2);
+        return;
+      }
+    }
+    state.stageActions[2] = state.isComplete ? "" : '<div class="action-row"><button class="btn" onclick="goToBacktest()">进入阶段3：回测</button></div>';
+    state.workflowStage = Math.max(state.workflowStage, 2);
+    maybeRenderUpdatedStage(2);
+    return;
+  }
+  if(targetStage === 4){
+    state.stageContent[4] = content;
+    if(!state.isComplete) await saveStageArtifact(4, content);
+    state.stageActions[4] = state.isComplete ? "" : '<div class="action-row"><button class="btn" onclick="goToNextStage(5)">进入阶段5：分析</button></div>';
+    state.workflowStage = Math.max(state.workflowStage, 4);
+    maybeRenderUpdatedStage(4);
+    return;
+  }
+  if(targetStage === 5){
+    state.stageContent[5] = content;
+    if(!state.isComplete) await saveStageArtifact(5, content);
+    state.stageActions[5] = state.isComplete ? "" : '<div class="action-row"><button class="btn" onclick="completeCurrentStrategy()">保存为完整策略</button></div>';
+    state.workflowStage = Math.max(state.workflowStage, 5);
+    maybeRenderUpdatedStage(5);
+    return;
+  }
+}
+
+async function sendText(text){
+  text = (text || "").trim();
+  if(!text) return;
+  const requestStage = state.workflowStage || state.currentStage || 1;
+  addMessage("usr", text);
+  const btn = E("sendBtn");
+  btn.disabled = true;
+  btn.textContent = "...";
+  try{
+    const r = await fetch("/api/chat",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({messages:[{role:"user", content:text}]})
+    });
+    const data = await r.json();
+    if(data.error){
+      addMessage("sys","错误：" + data.error);
+    }else{
+      const content = data.content || "";
+      await syncActiveStrategyFromChat(data);
+      addMessage("sys", content);
+      if(data.persist !== false){
+        await processStageContent(content, data.stage, requestStage);
+      }
+    }
+  }catch(e){
+    addMessage("sys","错误：" + e.message);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = "发送";
+  }
+}
+
+async function send(){
+  const inp = E("inp");
+  const text = inp.value.trim();
+  if(!text) return;
+  inp.value = "";
+  await sendText(text);
+}
+
+function showSettings(){
+  E("settingsModal").classList.add("show");
+}
+
+function closeSettings(){
+  E("settingsModal").classList.remove("show");
+}
+
+async function saveSettings(){
+  const key = E("apiKeyInput").value.trim();
+  if(!key) return;
+  await fetch("/api/config",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({api_key:key})
+  });
+  E("settingsStatus").textContent = "已保存";
+  setTimeout(closeSettings, 800);
+}
+
+window.addEventListener("load", async function(){
+  initResizablePanes();
+  try{
+    await newChat();
+  }catch(e){
+    E("body").innerHTML = '<div class="doc"><div class="empty-state"><p>页面加载失败</p><p style="font-size:12px">' + escapeHtml(e.message) + "</p></div></div>";
+  }
+});
+</script>
+</body>
+</html>
+

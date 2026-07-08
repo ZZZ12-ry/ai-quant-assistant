@@ -1,0 +1,150 @@
+{
+  "schema_version": "1.0",
+  "strategy_name": "简单有效的均线量化策略",
+  "strategy_type": "trend",
+  "template_id": "expma_cross_trend",
+  "template_source": "data/knowledge/strategy_templates",
+  "template_strategy_name": "EXPMA金叉趋势跟踪",
+  "core_logic": "短期EXPMA（10日）上穿长期EXPMA（30日）时做多，下穿时做空。使用ATR动态止损。",
+  "parameters": [
+    {
+      "name": "M",
+      "description": "基础均线周期",
+      "default": "20",
+      "range": "原文只说 M、2M、3M，未给具体值，平台 v1 设为 20。",
+      "source": "stage_1"
+    },
+    {
+      "name": "N",
+      "description": "突破观察周期",
+      "default": "20",
+      "range": "原文只说 N 周期高低点，未给具体值，平台 v1 设为 20。",
+      "source": "stage_1"
+    },
+    {
+      "name": "init_stop",
+      "description": "初始止损比例",
+      "default": "0.02",
+      "range": "原文未给具体止损幅度，平台 v1 设为 2%。",
+      "source": "stage_1"
+    },
+    {
+      "name": "K_min",
+      "description": "止损系数下限",
+      "default": "0.3",
+      "range": "原文明确写到 K 最低 0.3。",
+      "source": "stage_1"
+    },
+    {
+      "name": "decay_step",
+      "description": "K 每根Bar衰减步长",
+      "default": "0.1",
+      "range": "原文明确写到每过 1 个Bar，K 减少 0.1。",
+      "source": "stage_1"
+    },
+    {
+      "name": "position_size",
+      "description": "成交手数",
+      "default": "1手",
+      "range": "原文没有仓位公式，平台 v1 固定 1 手。",
+      "source": "stage_1"
+    }
+  ],
+  "indicators": [
+    "# VWMA：成交量加权均线。",
+    "# 价格先乘以成交量，再除以窗口内成交量总和。",
+    "vwma = rolling_sum(close * volume, period) / rolling_sum(volume, period)",
+    "# 三条均线构成短、中、长期趋势结构。",
+    "vwma1 = VWMA(close, volume, M)",
+    "vwma2 = VWMA(close, volume, 2 * M)",
+    "vwma3 = VWMA(close, volume, 3 * M)",
+    "# 平台 v1 对“锁定均线”的默认复现口径。",
+    "# 原文没有给完整状态机，因此当前用多头历史峰值、空头历史谷值近似。",
+    "locked_long = cummax(vwma1)",
+    "locked_short = cummin(vwma1)",
+    "# OBV：上涨日增加成交量，下跌日减少成交量，持平不变。",
+    "obv = cumsum(sign(close.diff()) * volume)",
+    "maobv = EMA(obv, M)",
+    "# N 周期突破线只使用历史窗口，shift(1) 避免用到当前K线数据。",
+    "n_high = rolling_max(high, N).shift(1)",
+    "n_low = rolling_min(low, N).shift(1)"
+  ],
+  "entry_rules": [
+    "多头入场需要同时满足：",
+    "上一根K线收盘价高于 VWMA3。",
+    "上一根K线 MAOBV 高于再上一根K线 MAOBV。",
+    "价格高于锁定均线、VWMA2 和 VWMA3。",
+    "VWMA1 > VWMA2 > VWMA3。",
+    "VWMA1、VWMA2、VWMA3 的斜率均为正。",
+    "当前收盘价突破 N 周期最高价。",
+    "空头入场按对称逻辑处理：价格位于均线下方、MAOBV 下降、均线空头排列、斜率为负，并跌破 N 周期最低价。",
+    "成交口径：信号在当前K线收盘后确认，实际成交按下一根K线开盘附近执行。当前 v1 固定每次开仓 1 手。"
+  ],
+  "exit_rules": [
+    "策略出场以动态移动止损为核心：",
+    "多头：跟踪开仓后的最高价，设置向下移动止损。",
+    "空头：跟踪开仓后的最低价，设置向上移动止损。",
+    "K 值从 1 开始，每持仓 1 根K线减少 0.1，最低降到 0.3。",
+    "止损幅度 = `init_stop * K`。持仓越久，K 越小，止损线越贴近价格。",
+    "多头止损示例：",
+    "开仓价 = 480",
+    "开仓后最高价 = 500",
+    "init_stop = 2%",
+    "持仓 5 根K线后，K = max(1 - 0.1 * 5, 0.3) = 0.5",
+    "动态止损价 = 500 * (1 - 0.02 * 0.5) = 495",
+    "这个例子说明：如果价格从 500 回落到 495 附近，策略会认为趋势保护线被触及，于是平仓。"
+  ],
+  "risk_controls": [
+    "策略出场以动态移动止损为核心：",
+    "多头：跟踪开仓后的最高价，设置向下移动止损。",
+    "空头：跟踪开仓后的最低价，设置向上移动止损。",
+    "K 值从 1 开始，每持仓 1 根K线减少 0.1，最低降到 0.3。",
+    "止损幅度 = `init_stop * K`。持仓越久，K 越小，止损线越贴近价格。",
+    "多头止损示例：",
+    "开仓价 = 480",
+    "开仓后最高价 = 500",
+    "init_stop = 2%",
+    "持仓 5 根K线后，K = max(1 - 0.1 * 5, 0.3) = 0.5",
+    "动态止损价 = 500 * (1 - 0.02 * 0.5) = 495",
+    "这个例子说明：如果价格从 500 回落到 495 附近，策略会认为趋势保护线被触及，于是平仓。"
+  ],
+  "assumptions": [
+    "原文有几处没有给出可直接编码的完整公式，平台必须给出默认口径并明确标注："
+  ],
+  "implementation_constraints": {
+    "engine_interface": "compute_indicators -> generate_signals -> run",
+    "signal_raw": "1=开多/加多/反手做多, -1=开空/加空/反手做空, 0=无新方向交易",
+    "exit_signal": "1=下一根K线只平仓, 0=不平仓；没有独立平仓逻辑时也应输出该列并置0",
+    "no_lookahead": true,
+    "external_dependencies": [
+      "pandas",
+      "numpy"
+    ]
+  },
+  "source_policy": {
+    "user_text_priority": true,
+    "rag_is_reference_only": true,
+    "do_not_import_history_strategy_params": true,
+    "stage2_no_free_inference": true
+  },
+  "stage2_gate": {
+    "stage2_allowed": true,
+    "rule_status": {
+      "indicator_formula": {
+        "status": "confirmed"
+      },
+      "entry_rule": {
+        "status": "confirmed"
+      },
+      "exit_rule": {
+        "status": "confirmed"
+      },
+      "position_sizing": {
+        "status": "confirmed_or_default"
+      }
+    },
+    "blocking_questions": [],
+    "warnings": [],
+    "policy": "阶段2只编译阶段1文档和 strategy_spec 中的规则；RAG 只作代码范式参考，不覆盖用户策略逻辑。"
+  }
+}

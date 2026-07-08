@@ -1,0 +1,32 @@
+# 因子: momentum_20d — 20日动量因子
+factor_name: momentum_20d
+category: 动量
+computation:
+  formula: close(t) / close(t-20) - 1
+  python_impl: df["ret_20d"] = df["close"] / df["close"].shift(20) - 1
+  parameters:
+  - - period
+    - 20
+    - 5-60
+    - 动量计算周期，短周期(5-10)偏交易型因子，长周期(40-60)偏趋势型因子
+applicable_symbols:
+- RB
+- HC
+- I
+- M
+- CF
+- TA
+performance:
+  ic_mean: 0.035
+  ic_ir: 0.62
+  ic_std: 0.056
+  decay: 3
+  backtest_period: 2020-01-01 至 2026-06-01
+drawdown_periods:
+- - 2024-06 至 2024-08
+  - -0.45
+  - 趋势反转行情，频繁双向假突破导致动量因子大幅回撤
+- - 2022-03 至 2022-05
+  - -0.32
+  - 地缘政治冲击，价格跳空导致动量方向突变
+notes: 在震荡行情中IC显著下降。建议与波动率因子组合使用，低波动环境下过滤信号。

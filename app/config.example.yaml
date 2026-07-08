@@ -1,0 +1,7 @@
+api_base: https://api.deepseek.com/v1
+api_key: ""
+max_tokens: 4096
+model: deepseek-chat
+retries: 1
+temperature: 0.2
+timeout: 90

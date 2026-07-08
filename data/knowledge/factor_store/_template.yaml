@@ -1,0 +1,24 @@
+# 因子模板 — 新建因子时复制此文件
+factor_name: 因子名称
+category: 动量/反转/波动率/流动性/价值/其他
+computation:
+  formula: 数学公式
+  python_impl: Python计算逻辑
+  parameters:
+  - - 参数名
+    - 默认值
+    - 范围
+    - 含义
+applicable_symbols:
+- 品种代码
+performance:
+  ic_mean: 0.0
+  ic_ir: 0.0
+  ic_std: 0.0
+  decay: 0
+  backtest_period: 回测区间
+drawdown_periods:
+- - 起止时间
+  - 回撤幅度
+  - 原因
+notes: 使用注意事项

@@ -1,0 +1,20 @@
+# 策略模板 — 新建策略条目时复制此文件
+strategy_name: 策略名称
+strategy_type: trend/arbitrage/reversal/market_making
+core_logic: 核心逻辑描述
+parameters:
+- - 参数名
+  - 默认值
+  - 范围
+  - 类型
+applicable_symbols:
+- 品种代码
+timeframe: 日线/小时/分钟
+historical_performance:
+  annual_return: 0.0
+  max_drawdown: 0.0
+  sharpe_ratio: 0.0
+  win_rate: 0.0
+  backtest_period: 回测区间
+status: online/offline/under_review
+notes: 策略特点、已知问题

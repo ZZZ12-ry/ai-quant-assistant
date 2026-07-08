@@ -1,0 +1,19 @@
+# 交易规则模板 — 新建交易所规则时复制此文件
+exchange_name: 交易所名称
+exchange_code: 代码
+trading_hours:
+  day: 日盘交易时间
+  night: 夜盘交易时间（无填None）
+margin_rules:
+- 保证金阶梯规则
+price_limits: 涨跌停板规则
+delivery_rules: 交割规则
+position_limits: 限仓规则
+symbols:
+- - code
+  - 名称
+  - 合约乘数
+  - 最小变动
+  - 手续费率
+  - 保证金率
+notes: 特殊注意事项

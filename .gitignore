@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Local secrets
+app/config.yaml
+.env
+.env.*
+
+# Runtime state
+data/active_*.txt
+outputs/
+work/
+memory.md
+
+# Local market data and generated reports
+data/*.csv
+data/local/
+reports/web/
+reports/verify/
+reports/*.html
+
+# Draft strategies and generated scratch artifacts
+strategies_drafts/
+
+# External downloaded skills/packages
+external_skills/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
