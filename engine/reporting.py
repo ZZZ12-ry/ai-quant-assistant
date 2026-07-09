@@ -240,6 +240,17 @@ def _no_trade_diagnosis(bars: pd.DataFrame, diagnostics: dict) -> list:
     exit_signals_seen = int(diagnostics.get("exit_signals_seen", 0) or 0)
     entries_opened = int(diagnostics.get("entries_opened", 0) or 0)
 
+    if not bars.empty and "error" in bars.columns:
+        errors = bars["error"].dropna().astype(str)
+        errors = errors[errors.str.strip().ne("")]
+        if not errors.empty:
+            top_error = errors.value_counts().index[0]
+            notes.append({
+                "title": "策略代码运行异常",
+                "detail": f"bars.csv 的 error 列显示：{top_error}。这通常意味着阶段2代码访问了不存在的字段，异常兜底后 signal_raw 被置为0。",
+                "suggestion": "优先检查阶段2字段映射和数据频率。若策略原文要求小时线/多周期，而当前回测只提供日线，应先改成日线近似口径或阻断进入回测。",
+            })
+
     if signals_seen == 0:
         notes.append({
             "title": "没有产生入场信号",

@@ -11,6 +11,7 @@ app/config.yaml
 
 # Runtime state
 data/active_*.txt
+data/stage2_ready.txt
 outputs/
 work/
 memory.md
@@ -24,6 +25,7 @@ reports/*.html
 
 # Draft strategies and generated scratch artifacts
 strategies_drafts/
+strategies/draft_*/
 
 # External downloaded skills/packages
 external_skills/
