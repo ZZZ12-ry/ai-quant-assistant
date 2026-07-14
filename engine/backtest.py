@@ -19,7 +19,7 @@ class BacktestEngine:
             out["exit_signal"] = 0
         for col in ["open", "high", "low", "close", "volume", "signal_raw", "exit_signal"]:
             out[col] = pd.to_numeric(out[col], errors="coerce")
-        for col in ["strategy_stop_price", "strategy_k", "strategy_trade_extreme"]:
+        for col in ["strategy_stop_price", "strategy_k", "strategy_trade_extreme", "strategy_take_profit_price", "strategy_take_profit_fraction"]:
             if col in out.columns:
                 out[col] = pd.to_numeric(out[col], errors="coerce")
         out = out.dropna(subset=["date", "open", "high", "low", "close"])
@@ -58,6 +58,12 @@ class BacktestEngine:
             "price_limit_pct": params.get("price_limit_pct", 0.0),  # 0=不检查涨跌停
             "min_volume": params.get("min_volume", 0),      # 最小成交量过滤
             "max_position": params.get("max_position", 1),  # 最大持仓手数，支持加仓策略
+            "position_sizing": params.get("position_sizing", "fixed"),  # fixed | risk
+            "fixed_lots": params.get("fixed_lots", 1),
+            "min_position": params.get("min_position", 1),
+            "risk_per_trade": params.get("risk_per_trade", 0.01),
+            "risk_stop_pct": params.get("risk_stop_pct", params.get("init_stop", 0.02)),
+            "cash_usage_limit": params.get("cash_usage_limit", 0.95),
         }
         return p
 
@@ -91,6 +97,50 @@ class BacktestEngine:
         """计算保证金要求"""
         return price * p["contract_multiplier"] * p["margin_rate"]
 
+    def _target_entry_lots(self, price: float, cash: float, p: dict) -> dict:
+        """Calculate initial entry lots.
+
+        fixed mode is used for strategy replication. risk mode sizes the first
+        entry by account risk, then applies margin and max-position caps.
+        """
+        max_position = max(int(p.get("max_position", 1) or 1), 1)
+        min_position = max(int(p.get("min_position", 1) or 1), 1)
+        sizing = str(p.get("position_sizing", "fixed") or "fixed").lower()
+        margin_per_lot = max(self._margin_required(price, p), 0.0)
+        cash_cap = max(float(cash) * float(p.get("cash_usage_limit", 0.95) or 0.95), 0.0)
+        margin_lots = int(cash_cap // margin_per_lot) if margin_per_lot > 0 else max_position
+
+        if sizing != "risk":
+            requested = max(int(p.get("fixed_lots", 1) or 1), 1)
+            lots = min(requested, max_position, margin_lots)
+            return {
+                "lots": max(lots, 0),
+                "sizing_model": "fixed",
+                "risk_amount": 0.0,
+                "risk_per_lot": 0.0,
+                "raw_risk_lots": 0,
+                "margin_lots": margin_lots,
+            }
+
+        risk_pct = max(float(p.get("risk_per_trade", 0.01) or 0.01), 0.0)
+        stop_pct = max(float(p.get("risk_stop_pct", p.get("init_stop", 0.02)) or 0.02), 0.0001)
+        risk_amount = max(float(self.initial_capital if cash <= 0 else cash) * risk_pct, 0.0)
+        risk_per_lot = max(abs(float(price) * stop_pct * float(p["contract_multiplier"])), 0.0)
+        raw_risk_lots = int(risk_amount // risk_per_lot) if risk_per_lot > 0 else 0
+        if raw_risk_lots <= 0 and risk_amount > 0 and risk_per_lot > 0:
+            raw_risk_lots = 1
+        lots = min(raw_risk_lots, margin_lots, max_position)
+        if lots < min_position:
+            lots = min_position if min_position <= margin_lots and min_position <= max_position else 0
+        return {
+            "lots": max(int(lots), 0),
+            "sizing_model": "risk",
+            "risk_amount": risk_amount,
+            "risk_per_lot": risk_per_lot,
+            "raw_risk_lots": raw_risk_lots,
+            "margin_lots": margin_lots,
+        }
+
     def run(self, df: pd.DataFrame, params: dict, symbol: str = "") -> dict:
         raw_rows = len(df)
         df = self._validate_input(df)
@@ -108,12 +158,15 @@ class BacktestEngine:
             "add_entries_opened": 0,
             "strategy_exits": 0,
             "strategy_stop_exits": 0,
+            "strategy_take_profit_exits": 0,
             "signal_reversals": 0,
             "orders_rejected_insufficient_cash": 0,
             "orders_rejected_volume_participation": 0,
+            "orders_rejected_position_sizing": 0,
             "orders_blocked_price_limit": 0,
             "forced_final_close": 0,
             "execution_model": "signal_on_close_fill_next_open; stop_intrabar_fill_stop_price",
+            "position_sizing": str(p.get("position_sizing", "fixed")),
         }
 
         position = 0  # signed lots
@@ -128,6 +181,13 @@ class BacktestEngine:
         add_count = 0
         entry_signal_date = None
         entry_fill_mode = ""
+        entry_sizing = {
+            "sizing_model": str(p.get("position_sizing", "fixed")),
+            "risk_amount": 0.0,
+            "risk_per_lot": 0.0,
+            "raw_risk_lots": 0,
+            "margin_lots": 0,
+        }
         trades = []
 
         df["position"] = 0
@@ -162,20 +222,29 @@ class BacktestEngine:
                 "total_cost": unit["total_cost"] * lots,
             }
 
-        def close_position(exit_price: float, exit_date, exit_reason: str, idx: int, signal_date=None, fill_mode: str = ""):
-            nonlocal position, entry_price, entry_idx, entry_date, margin_used, cash, entry_costs, add_count, entry_signal_date, entry_fill_mode
+        def close_lots(exit_price: float, exit_date, exit_reason: str, idx: int, lots_to_close: int, signal_date=None, fill_mode: str = ""):
+            nonlocal position, entry_price, entry_idx, entry_date, margin_used, cash, entry_costs, add_count, entry_signal_date, entry_fill_mode, entry_sizing
             if position == 0:
                 return
-            lots = abs(position)
+            current_lots = abs(position)
             direction = signed_dir()
-            gross_pnl = (exit_price - entry_price) * p["contract_multiplier"] * position
-            exit_costs = costs_for_fill(exit_price, lots)
+            close_lots_qty = max(1, min(int(lots_to_close), current_lots))
+            gross_pnl = (exit_price - entry_price) * p["contract_multiplier"] * (direction * close_lots_qty)
+            exit_costs = costs_for_fill(exit_price, close_lots_qty)
             exit_fee = exit_costs["total_cost"]
-            total_fee = entry_costs["total_cost"] + exit_fee
-            total_slippage = entry_costs["slippage_cost"] + exit_costs["slippage_cost"]
-            total_impact = entry_costs["impact_cost"] + exit_costs["impact_cost"]
+            ratio = close_lots_qty / current_lots if current_lots else 1.0
+            allocated_entry_costs = {
+                "commission": entry_costs["commission"] * ratio,
+                "slippage_cost": entry_costs["slippage_cost"] * ratio,
+                "impact_cost": entry_costs["impact_cost"] * ratio,
+                "total_cost": entry_costs["total_cost"] * ratio,
+            }
+            total_fee = allocated_entry_costs["total_cost"] + exit_fee
+            total_slippage = allocated_entry_costs["slippage_cost"] + exit_costs["slippage_cost"]
+            total_impact = allocated_entry_costs["impact_cost"] + exit_costs["impact_cost"]
             net_pnl = gross_pnl - total_fee
-            cash += gross_pnl - exit_fee + margin_used
+            released_margin = margin_used * ratio
+            cash += gross_pnl - exit_fee + released_margin
             trades.append({
                 "entry_date": entry_date,
                 "entry_signal_date": entry_signal_date,
@@ -186,44 +255,85 @@ class BacktestEngine:
                 "exit_fill_mode": fill_mode or ("stop_intrabar" if "stop" in exit_reason else "next_open"),
                 "exit_price": exit_price,
                 "direction": "long" if direction == 1 else "short",
-                "position_size": lots,
+                "position_size": close_lots_qty,
+                "position_size_before_exit": current_lots,
                 "add_count": add_count,
+                "sizing_model": entry_sizing.get("sizing_model", "fixed"),
+                "risk_amount": entry_sizing.get("risk_amount", 0.0),
+                "risk_per_lot": entry_sizing.get("risk_per_lot", 0.0),
+                "raw_risk_lots": entry_sizing.get("raw_risk_lots", 0),
+                "margin_lots": entry_sizing.get("margin_lots", 0),
                 "exit_reason": exit_reason,
                 "bars_held": idx - entry_idx,
                 "gross_pnl": gross_pnl,
                 "fee": total_fee,
-                "entry_commission": entry_costs["commission"],
+                "entry_commission": allocated_entry_costs["commission"],
                 "exit_commission": exit_costs["commission"],
-                "commission": entry_costs["commission"] + exit_costs["commission"],
+                "commission": allocated_entry_costs["commission"] + exit_costs["commission"],
                 "slippage_cost": total_slippage,
                 "impact_cost": total_impact,
                 "total_cost": total_fee,
                 "economic_cost": total_fee + total_slippage + total_impact,
                 "net_pnl": net_pnl,
             })
-            position = 0
-            entry_price = 0.0
-            entry_idx = 0
-            entry_date = None
-            margin_used = 0.0
-            add_count = 0
-            entry_signal_date = None
-            entry_fill_mode = ""
-            entry_costs = {"commission": 0.0, "slippage_cost": 0.0, "impact_cost": 0.0, "total_cost": 0.0}
+            remaining_lots = current_lots - close_lots_qty
+            entry_costs = {
+                "commission": entry_costs["commission"] - allocated_entry_costs["commission"],
+                "slippage_cost": entry_costs["slippage_cost"] - allocated_entry_costs["slippage_cost"],
+                "impact_cost": entry_costs["impact_cost"] - allocated_entry_costs["impact_cost"],
+                "total_cost": entry_costs["total_cost"] - allocated_entry_costs["total_cost"],
+            }
+            margin_used -= released_margin
+            if remaining_lots <= 0:
+                position = 0
+                entry_price = 0.0
+                entry_idx = 0
+                entry_date = None
+                margin_used = 0.0
+                add_count = 0
+                entry_signal_date = None
+                entry_fill_mode = ""
+                entry_costs = {"commission": 0.0, "slippage_cost": 0.0, "impact_cost": 0.0, "total_cost": 0.0}
+                entry_sizing = {
+                    "sizing_model": str(p.get("position_sizing", "fixed")),
+                    "risk_amount": 0.0,
+                    "risk_per_lot": 0.0,
+                    "raw_risk_lots": 0,
+                    "margin_lots": 0,
+                }
+            else:
+                position = direction * remaining_lots
+
+        def close_position(exit_price: float, exit_date, exit_reason: str, idx: int, signal_date=None, fill_mode: str = ""):
+            if position == 0:
+                return
+            close_lots(exit_price, exit_date, exit_reason, idx, abs(position), signal_date=signal_date, fill_mode=fill_mode)
 
         def open_or_add(direction: int, bar, idx: int, signal_date=None, fill_mode: str = "next_open") -> bool:
-            nonlocal position, entry_price, entry_idx, entry_date, margin_used, cash, entry_costs, trade_extreme, stop_price, add_count, entry_signal_date, entry_fill_mode
+            nonlocal position, entry_price, entry_idx, entry_date, margin_used, cash, entry_costs, trade_extreme, stop_price, add_count, entry_signal_date, entry_fill_mode, entry_sizing
             lots = abs(position)
             if lots >= int(p["max_position"]):
                 return False
+            fill = execution_price(bar["open"], direction, True)
+            sizing_info = self._target_entry_lots(fill, cash, p) if position == 0 else {
+                "lots": 1,
+                "sizing_model": "add",
+                "risk_amount": 0.0,
+                "risk_per_lot": 0.0,
+                "raw_risk_lots": 0,
+                "margin_lots": 0,
+            }
+            order_lots = min(int(sizing_info.get("lots", 0) or 0), int(p["max_position"]) - lots)
+            if order_lots <= 0:
+                diagnostics["orders_rejected_position_sizing"] += 1
+                return False
             volume = float(bar.get("volume", 0) or 0)
             max_participation = float(p.get("max_volume_participation", 0) or 0)
-            if max_participation > 0 and volume > 0 and (lots + 1) > volume * max_participation:
+            if max_participation > 0 and volume > 0 and (lots + order_lots) > volume * max_participation:
                 diagnostics["orders_rejected_volume_participation"] += 1
                 return False
-            fill = execution_price(bar["open"], direction, True)
-            required_margin = self._margin_required(fill, p)
-            fill_costs = costs_for_fill(fill, 1)
+            required_margin = self._margin_required(fill, p) * order_lots
+            fill_costs = costs_for_fill(fill, order_lots)
             total_cash_need = required_margin + fill_costs["total_cost"]
             if cash < total_cash_need:
                 diagnostics["orders_rejected_insufficient_cash"] += 1
@@ -231,18 +341,19 @@ class BacktestEngine:
             cash -= total_cash_need
             margin_used += required_margin
             if position == 0:
-                position = direction
+                position = direction * order_lots
                 entry_price = fill
                 entry_idx = idx
                 entry_date = bar.get("date", idx)
                 entry_signal_date = signal_date if signal_date is not None else entry_date
                 entry_fill_mode = fill_mode
+                entry_sizing = sizing_info
                 trade_extreme = bar["high"] if direction == 1 else bar["low"]
                 stop_price = float("nan")
                 diagnostics["entries_opened"] += 1
             else:
-                entry_price = (entry_price * lots + fill) / (lots + 1)
-                position += direction
+                entry_price = (entry_price * lots + fill * order_lots) / (lots + order_lots)
+                position += direction * order_lots
                 add_count += 1
                 diagnostics["add_entries_opened"] += 1
             entry_costs = add_costs(entry_costs, fill_costs)
@@ -327,6 +438,23 @@ class BacktestEngine:
                             diagnostics["strategy_stop_exits"] += 1
                 df.at[i, "stop_price"] = stop_price
 
+            if position != 0:
+                direction = signed_dir()
+                tp_price = None
+                tp_fraction = float(bar.get("strategy_take_profit_fraction", np.nan)) if "strategy_take_profit_fraction" in df.columns else np.nan
+                if "strategy_take_profit_price" in df.columns:
+                    value = pd.to_numeric(pd.Series([bar.get("strategy_take_profit_price", np.nan)]), errors="coerce").iloc[0]
+                    if pd.notna(value) and float(value) > 0:
+                        tp_price = float(value)
+                tp_fraction = float(tp_fraction) if pd.notna(tp_fraction) else 0.0
+                if tp_price is not None and tp_fraction > 0 and position != 0:
+                    touched = (direction == 1 and float(bar["high"]) >= tp_price) or (direction == -1 and float(bar["low"]) <= tp_price)
+                    if touched:
+                        current_lots = abs(position)
+                        lots_to_close = max(1, int(np.ceil(current_lots * min(tp_fraction, 1.0))))
+                        close_lots(tp_price, bar["date"], "strategy_take_profit", i, lots_to_close, signal_date=bar["date"], fill_mode="take_profit_intrabar")
+                        diagnostics["strategy_take_profit_exits"] += 1
+
             if i > 0 and not limit_hit and not handled_prev_signal:
                 prev_signal = int(df.at[i - 1, "signal_raw"])
                 if prev_signal != 0:
@@ -369,12 +497,16 @@ class BacktestEngine:
         stats["execution_policy"] = {
             "signal_timing": "策略在第 t 根K线收盘后产生 signal_raw / exit_signal",
             "entry_fill": "第 t+1 根K线开盘价成交，并按方向叠加滑点",
-            "exit_fill": "反向信号/主动离场按下一根开盘价成交；策略止损按当根触及止损价成交",
+            "exit_fill": "反向信号/主动离场按下一根开盘价成交；策略止损与分批止盈按当根触及目标价成交；若同一根K线同时触及止损与止盈，当前实现先执行止损",
             "slippage": p["slippage"],
             "commission_rate": p["commission_rate"],
             "fee_mode": p["fee_mode"],
             "margin_rate": p["margin_rate"],
             "max_volume_participation": p["max_volume_participation"],
+            "position_sizing": p["position_sizing"],
+            "risk_per_trade": p["risk_per_trade"],
+            "risk_stop_pct": p["risk_stop_pct"],
+            "max_position": p["max_position"],
         }
         return {"bars": df, "trades": trades_df, "equity_curve": equity_df, "stats": stats}
 

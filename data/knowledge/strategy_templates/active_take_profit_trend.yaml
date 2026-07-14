@@ -1,0 +1,36 @@
+strategy_name: 主动止盈趋势跟踪
+source_project: ai-quant-assistant
+source_module: engine.stage2_codegen
+strategy_type: trend_following
+core_logic: 使用 N 周期通道突破配合快慢 EMA 方向确认入场，在趋势延续过程中按照 ATR 阶梯目标分批止盈，同时保留反向信号或保护止损作为剩余仓位的退出约束。
+engine_mapping:
+  current_engine_interface: compute_indicators -> generate_signals -> run
+  migration_note: 当前平台新增了 strategy_take_profit_price / strategy_take_profit_fraction 两个可选列，用于表达阶段性的分批止盈目标。
+parameters:
+  - [breakout_period, 20, 10-60, int, 通道突破周期]
+  - [fast_ema, 10, 5-30, int, 快速 EMA 周期]
+  - [slow_ema, 30, 15-80, int, 慢速 EMA 周期]
+  - [atr_period, 14, 10-30, int, ATR 波动率周期]
+  - [stop_loss_atr, 2.0, 1.0-4.0, float, 初始保护止损 ATR 倍数]
+  - [tp_atr_1, 3.0, 1.0-6.0, float, 第一档止盈 ATR 倍数]
+  - [tp_atr_2, 6.0, 3.0-10.0, float, 第二档止盈 ATR 倍数]
+  - [tp_atr_3, 9.0, 5.0-15.0, float, 第三档止盈 ATR 倍数]
+  - [tp_fraction, 0.5, 0.1-0.8, float, 每次止盈减掉剩余仓位的比例]
+  - [max_position, 4, 1-8, int, 最大持仓手数]
+  - [fixed_lots, 4, 1-8, int, 默认开仓手数]
+applicable_symbols: [RB, HC, AU, AG, CU, M]
+timeframe: 日线
+signal_rules:
+  long_entry: 当前最高价突破过去 breakout_period 周期最高价，且前一根 K 线 fast EMA > slow EMA
+  short_entry: 当前最低价跌破过去 breakout_period 周期最低价，且前一根 K 线 fast EMA < slow EMA
+  scale_out: 持仓后按照 3 ATR / 6 ATR / 9 ATR 的盈利目标依次分批止盈，每次减掉剩余仓位的 tp_fraction
+  long_exit: 反向突破且前一根 K 线 fast EMA < slow EMA，或触发保护止损
+  short_exit: 反向突破且前一根 K 线 fast EMA > slow EMA，或触发保护止损
+implementation_guidance:
+  no_lookahead: 通道高低点必须使用 shift(1) 后的历史窗口；EMA 方向确认也应以 t-1 状态确认，避免未来函数
+  atr_formula: TR=max(high-low, abs(high-close.shift(1)), abs(low-close.shift(1))); ATR=TR.rolling(atr_period).mean()
+  signal_raw: 1=下一根K线开多或反手做多，-1=下一根K线开空或反手做空，0=无新的方向交易
+  exit_signal: 1=下一根K线只平剩余仓位；若是反手则优先通过 signal_raw 表达
+  partial_exit: 分批止盈通过 strategy_take_profit_price + strategy_take_profit_fraction 表达；若同一根K线同时触及止损与止盈，默认优先止损
+status: template
+notes: 该模板适合“通道突破 + EMA 确认 + ATR 阶梯止盈”类策略。若原文未给出反向止损细节，阶段一必须显式标注默认复现口径。

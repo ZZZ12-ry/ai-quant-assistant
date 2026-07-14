@@ -89,6 +89,8 @@ def _family(spec: dict[str, Any], readme: str) -> str:
     template_id = str(spec.get("template_id") or "").lower()
     if any(token in text for token in ["vwma", "obv", "maobv", "locked", "锁定", "能量潮"]):
         return "locked_vwma_obv"
+    if any(token in text for token in ["主动止盈", "分批止盈", "阶梯式移动止盈", "partial take profit", "scale out"]) and any(token in text for token in ["ema", "atr", "通道突破", "breakout"]):
+        return "active_take_profit_trend"
     if any(token in text for token in ["斜率", "slope"]) and any(token in text for token in ["通道", "突破", "channel"]):
         return "ma_slope_breakout"
     if "turtle" in template_id or any(token in text for token in ["海龟", "super turtle", "donchian", "唐奇安", "atr"]):
@@ -113,6 +115,9 @@ def generate_stage2_code(strategy_dir: Path | None, reason: str = "stage2 contro
     if family == "ma_slope_breakout":
         params = _ma_slope_params(spec)
         return _ma_slope_code(params, reason), params, family
+    if family == "active_take_profit_trend":
+        params = _active_take_profit_params(spec)
+        return _active_take_profit_code(params, reason), params, family
     if family == "turtle_breakout":
         params = _turtle_params(spec)
         return _turtle_code(params, reason), params, family
@@ -440,6 +445,173 @@ def _turtle_params(spec: dict[str, Any]) -> dict[str, Any]:
         "max_position": _param_default(spec, ["max_position"], 1),
     })
     return params
+
+
+def _active_take_profit_params(spec: dict[str, Any]) -> dict[str, Any]:
+    params = _base_params(spec)
+    params.update({
+        "breakout_period": _param_default(spec, ["breakout_period", "N", "entry_period"], 20),
+        "fast_ema": _param_default(spec, ["fast_ema", "fast_period", "ema_fast"], 10),
+        "slow_ema": _param_default(spec, ["slow_ema", "slow_period", "ema_slow"], 30),
+        "atr_period": _param_default(spec, ["atr_period"], 14),
+        "stop_loss_atr": _param_default(spec, ["stop_loss_atr", "initial_stop_atr"], 2.0),
+        "tp_atr_1": _param_default(spec, ["tp_atr_1", "take_profit_1", "profit_target_1"], 3.0),
+        "tp_atr_2": _param_default(spec, ["tp_atr_2", "take_profit_2", "profit_target_2"], 6.0),
+        "tp_atr_3": _param_default(spec, ["tp_atr_3", "take_profit_3", "profit_target_3"], 9.0),
+        "tp_fraction": _param_default(spec, ["tp_fraction", "take_profit_fraction"], 0.5),
+        "max_position": _param_default(spec, ["max_position"], 4),
+        "fixed_lots": _param_default(spec, ["fixed_lots"], 4),
+    })
+    params["position_sizing"] = "fixed"
+    return params
+
+
+def _active_take_profit_code(params: dict[str, Any], reason: str) -> str:
+    return _preamble(reason) + f'''class Strategy:
+    def __init__(self, params: dict):
+        self.breakout_period = int(params.get("breakout_period", {params["breakout_period"]}))
+        self.fast_ema = int(params.get("fast_ema", {params["fast_ema"]}))
+        self.slow_ema = int(params.get("slow_ema", {params["slow_ema"]}))
+        self.atr_period = int(params.get("atr_period", {params["atr_period"]}))
+        self.stop_loss_atr = float(params.get("stop_loss_atr", {params["stop_loss_atr"]}))
+        self.tp_atr_1 = float(params.get("tp_atr_1", {params["tp_atr_1"]}))
+        self.tp_atr_2 = float(params.get("tp_atr_2", {params["tp_atr_2"]}))
+        self.tp_atr_3 = float(params.get("tp_atr_3", {params["tp_atr_3"]}))
+        self.tp_fraction = float(params.get("tp_fraction", {params["tp_fraction"]}))
+        self.max_position = int(params.get("max_position", {params["max_position"]}))
+        self.fixed_lots = int(params.get("fixed_lots", {params["fixed_lots"]}))
+        self.position_sizing = str(params.get("position_sizing", "fixed"))
+{_common_param_lines(params)}
+
+    def compute_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        prev_close = df["close"].shift(1)
+        tr = pd.concat(
+            [
+                (df["high"] - df["low"]).abs(),
+                (df["high"] - prev_close).abs(),
+                (df["low"] - prev_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        df["atr"] = tr.rolling(self.atr_period).mean()
+        df["ema_fast"] = df["close"].ewm(span=self.fast_ema, adjust=False).mean()
+        df["ema_slow"] = df["close"].ewm(span=self.slow_ema, adjust=False).mean()
+        df["breakout_high"] = df["high"].shift(1).rolling(self.breakout_period).max()
+        df["breakout_low"] = df["low"].shift(1).rolling(self.breakout_period).min()
+        return df
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["signal_raw"] = 0
+        df["exit_signal"] = 0
+        df["strategy_stop_price"] = np.nan
+        df["strategy_take_profit_price"] = np.nan
+        df["strategy_take_profit_fraction"] = np.nan
+        df["tp_stage"] = 0
+        position = 0
+        pending_signal = 0
+        entry_price = np.nan
+        entry_atr = np.nan
+        tp_stage = 0
+        tp_levels = [self.tp_atr_1, self.tp_atr_2, self.tp_atr_3]
+
+        for i in range(len(df)):
+            idx = df.index[i]
+            row = df.iloc[i]
+            if pending_signal != 0 and position == 0:
+                position = pending_signal
+                pending_signal = 0
+                entry_price = float(row["open"])
+                entry_atr = float(row["atr"]) if pd.notna(row["atr"]) and float(row["atr"]) > 0 else np.nan
+                tp_stage = 0
+
+            long_ready = (
+                pd.notna(row["breakout_high"])
+                and float(row["high"]) > float(row["breakout_high"])
+                and pd.notna(df["ema_fast"].shift(1).iloc[i])
+                and pd.notna(df["ema_slow"].shift(1).iloc[i])
+                and float(df["ema_fast"].shift(1).iloc[i]) > float(df["ema_slow"].shift(1).iloc[i])
+            )
+            short_ready = (
+                pd.notna(row["breakout_low"])
+                and float(row["low"]) < float(row["breakout_low"])
+                and pd.notna(df["ema_fast"].shift(1).iloc[i])
+                and pd.notna(df["ema_slow"].shift(1).iloc[i])
+                and float(df["ema_fast"].shift(1).iloc[i]) < float(df["ema_slow"].shift(1).iloc[i])
+            )
+
+            if position == 1 and pd.notna(entry_atr):
+                stop_price = float(entry_price - self.stop_loss_atr * entry_atr)
+                df.at[idx, "strategy_stop_price"] = stop_price
+                if tp_stage < len(tp_levels):
+                    target = float(entry_price + tp_levels[tp_stage] * entry_atr)
+                    df.at[idx, "strategy_take_profit_price"] = target
+                    df.at[idx, "strategy_take_profit_fraction"] = self.tp_fraction
+                    if float(row["high"]) >= target:
+                        tp_stage += 1
+                if float(row["low"]) <= stop_price:
+                    position = 0
+                    entry_price = np.nan
+                    entry_atr = np.nan
+                    tp_stage = 0
+                    continue
+                if short_ready:
+                    df.at[idx, "signal_raw"] = -1
+                    pending_signal = -1
+                    position = 0
+                    entry_price = np.nan
+                    entry_atr = np.nan
+                    tp_stage = 0
+                    continue
+
+            elif position == -1 and pd.notna(entry_atr):
+                stop_price = float(entry_price + self.stop_loss_atr * entry_atr)
+                df.at[idx, "strategy_stop_price"] = stop_price
+                if tp_stage < len(tp_levels):
+                    target = float(entry_price - tp_levels[tp_stage] * entry_atr)
+                    df.at[idx, "strategy_take_profit_price"] = target
+                    df.at[idx, "strategy_take_profit_fraction"] = self.tp_fraction
+                    if float(row["low"]) <= target:
+                        tp_stage += 1
+                if float(row["high"]) >= stop_price:
+                    position = 0
+                    entry_price = np.nan
+                    entry_atr = np.nan
+                    tp_stage = 0
+                    continue
+                if long_ready:
+                    df.at[idx, "signal_raw"] = 1
+                    pending_signal = 1
+                    position = 0
+                    entry_price = np.nan
+                    entry_atr = np.nan
+                    tp_stage = 0
+                    continue
+
+            if position == 0 and pending_signal == 0:
+                if long_ready:
+                    df.at[idx, "signal_raw"] = 1
+                    pending_signal = 1
+                elif short_ready:
+                    df.at[idx, "signal_raw"] = -1
+                    pending_signal = -1
+            df.at[idx, "tp_stage"] = tp_stage
+        return df
+
+    def run(self, df: pd.DataFrame) -> pd.DataFrame:
+        try:
+            return self.generate_signals(self.compute_indicators(df))
+        except Exception as exc:
+            out = df.copy()
+            out["signal_raw"] = 0
+            out["exit_signal"] = 0
+            out["strategy_stop_price"] = 0.0
+            out["strategy_take_profit_price"] = np.nan
+            out["strategy_take_profit_fraction"] = np.nan
+            out["_error"] = str(exc)
+            return out
+'''
 
 
 def _turtle_code(params: dict[str, Any], reason: str) -> str:

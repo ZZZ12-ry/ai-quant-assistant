@@ -119,6 +119,37 @@ class StrategySpecTests(unittest.TestCase):
         self.assertFalse(gate["stage2_allowed"])
         self.assertTrue(any("入场" in item for item in gate["blocking_questions"]))
 
+    def test_strategy_spec_marks_intraday_and_multitimeframe_requirements(self):
+        from engine.strategy_spec import build_strategy_spec
+
+        intraday_spec = build_strategy_spec(
+            """
+            ## 策略核心思想
+            R-Breaker 日内交易策略。
+            ## 入场规则
+            根据前一日关键价位，在当日盘中突破或反转时进场。
+            ## 出场规则
+            收盘前5分钟强制平仓。
+            """
+        )
+        intraday_req = intraday_spec["data_requirements"]
+        self.assertEqual(intraday_req["required_frequency"], "intraday")
+        self.assertFalse(intraday_req["supported_by_default_backtest"])
+
+        mtf_spec = build_strategy_spec(
+            """
+            ## 策略核心思想
+            日线判断趋势，小时线寻找回调结束后的突破入场。
+            ## 入场规则
+            小时线突破ATR通道时开仓。
+            ## 出场规则
+            日线均线反向交叉平仓。
+            """
+        )
+        mtf_req = mtf_spec["data_requirements"]
+        self.assertEqual(mtf_req["required_frequency"], "multi_timeframe")
+        self.assertFalse(mtf_req["supported_by_default_backtest"])
+
 
 class Stage2PersistenceTests(unittest.TestCase):
     def test_stage2_artifact_saves_model_for_active_draft(self):
@@ -176,6 +207,71 @@ class PersistedTestStrategy:
                 sm.ACTIVE_FILE.write_text(previous_active, encoding="utf-8")
             chat.set_stage(1)
 
+
+class Stage2CodegenTests(unittest.TestCase):
+    def test_active_take_profit_strategy_family_is_detected(self):
+        from engine.stage2_codegen import generate_stage2_code
+
+        sid = "test_active_take_profit_family"
+        draft_dir = ROOT / "strategies_drafts" / sid
+        if draft_dir.exists():
+            shutil.rmtree(draft_dir)
+        draft_dir.mkdir(parents=True)
+        try:
+            (draft_dir / "README.md").write_text(
+                """# 主动止盈趋势跟踪策略
+
+## 策略核心思想
+使用通道突破 + EMA 确认做趋势跟踪，并在 3 ATR、6 ATR、9 ATR 位置分批止盈。
+""",
+                encoding="utf-8",
+            )
+            code, params, family = generate_stage2_code(draft_dir, reason="test")
+            self.assertEqual(family, "active_take_profit_trend")
+            self.assertIn("strategy_take_profit_price", code)
+            self.assertEqual(params["tp_fraction"], 0.5)
+        finally:
+            if draft_dir.exists():
+                shutil.rmtree(draft_dir)
+
+
+class BacktestEngineTests(unittest.TestCase):
+    def test_backtest_engine_supports_partial_take_profit(self):
+        from engine.backtest import BacktestEngine
+
+        df = pd.DataFrame({
+            "date": pd.date_range("2024-01-01", periods=5, freq="D"),
+            "open": [100, 101, 104, 109, 114],
+            "high": [101, 105, 110, 115, 116],
+            "low": [99, 100, 103, 108, 113],
+            "close": [100, 104, 109, 114, 115],
+            "volume": [10000, 10000, 10000, 10000, 10000],
+            "signal_raw": [1, 0, 0, 0, 0],
+            "exit_signal": [0, 0, 0, 0, 0],
+            "strategy_stop_price": [0, 0, 0, 0, 0],
+            "strategy_take_profit_price": [None, None, 108, 112, None],
+            "strategy_take_profit_fraction": [None, None, 0.5, 0.5, None],
+        })
+        params = {
+            "contract_multiplier": 10,
+            "commission_rate": 0.0001,
+            "slippage": 0,
+            "margin_rate": 0.08,
+            "position_sizing": "fixed",
+            "fixed_lots": 4,
+            "max_position": 4,
+            "init_stop": 0.5,
+            "K_min": 0.3,
+            "decay_step": 0.1,
+        }
+        result = BacktestEngine(100000).run(df, params)
+        trades = result["trades"]
+        self.assertEqual(int(result["stats"]["diagnostics"]["strategy_take_profit_exits"]), 2)
+        self.assertEqual(len(trades), 3)
+        self.assertEqual(trades.iloc[0]["exit_reason"], "strategy_take_profit")
+        self.assertEqual(int(trades.iloc[0]["position_size"]), 2)
+        self.assertEqual(int(trades.iloc[1]["position_size"]), 1)
+
     def test_stage2_accepts_contract_class_without_strategy_suffix(self):
         from app import chat
         from engine import strategy_manager as sm
@@ -223,6 +319,39 @@ class TrendWeaver:
             if previous_active:
                 sm.ACTIVE_FILE.write_text(previous_active, encoding="utf-8")
             chat.set_stage(1)
+
+    def test_extract_default_params_from_default_params_dict(self):
+        from app.chat import _extract_default_params
+
+        code = """
+import pandas as pd
+
+class DictParamsStrategy:
+    def __init__(self, params: dict):
+        default_params = {
+            "Bbreak_coeff": 0.35,
+            "Ssetup_coeff": 0.25,
+            "RANGEMIN_pct": 0.2,
+        }
+        self.params = default_params.copy()
+        self.params.update(params)
+
+    def compute_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        return df
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["signal_raw"] = 0
+        df["exit_signal"] = 0
+        return df
+
+    def run(self, df: pd.DataFrame) -> pd.DataFrame:
+        return self.generate_signals(self.compute_indicators(df))
+"""
+        extracted = _extract_default_params(code)
+        self.assertEqual(extracted["Bbreak_coeff"], 0.35)
+        self.assertEqual(extracted["Ssetup_coeff"], 0.25)
+        self.assertEqual(extracted["RANGEMIN_pct"], 0.2)
 
     def test_stage1_gate_blocks_advance_even_when_model_exists(self):
         from app import chat
@@ -679,6 +808,66 @@ class StrategyIterationTests(unittest.TestCase):
             if previous_active:
                 sm.ACTIVE_FILE.write_text(previous_active, encoding="utf-8")
 
+    def test_create_iteration_can_branch_from_completed_draft_version(self):
+        from engine import strategy_manager as sm
+
+        parent = "test_parent_iteration_branch_contract"
+        parent_dir = sm.COMPLETED_DIR / parent
+        report_dir = ROOT / "reports" / "web"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        draft_dirs_before = set(sm.DRAFT_DIR.glob(f"{parent}_iter_*"))
+        report_files_before = set(report_dir.glob(f"{parent}_iter_*"))
+        previous_active = sm.ACTIVE_FILE.read_text(encoding="utf-8") if sm.ACTIVE_FILE.exists() else ""
+        if parent_dir.exists():
+            shutil.rmtree(parent_dir)
+        parent_dir.mkdir(parents=True)
+        try:
+            (parent_dir / "model.py").write_text("class TestStrategy:\n    pass\n", encoding="utf-8")
+            (parent_dir / "params.yaml").write_text("N: 20\n", encoding="utf-8")
+            (parent_dir / "README.md").write_text("# test parent\n", encoding="utf-8")
+            (parent_dir / "meta.yaml").write_text(
+                yaml.dump({"complete": True, "name": "test parent"}, allow_unicode=True),
+                encoding="utf-8",
+            )
+
+            first = sm.create_strategy_iteration(parent, "risk", "risk sizing", "test parent v2")
+            first_dir = sm.DRAFT_DIR / first["strategy"]
+            (first_dir / "check_report.md").write_text("check", encoding="utf-8")
+            (first_dir / "analysis_template.md").write_text("analysis", encoding="utf-8")
+            (report_dir / f"{first['strategy']}_AU0_backtest.html").write_text("<html></html>", encoding="utf-8")
+
+            second = sm.create_strategy_iteration(
+                first["strategy"],
+                "parameter",
+                "scan params",
+                "test parent v3",
+                parent_scope="draft",
+            )
+            second_dir = sm.DRAFT_DIR / second["strategy"]
+            self.assertTrue(second_dir.exists())
+            self.assertFalse((second_dir / "check_report.md").exists())
+            self.assertFalse((second_dir / "analysis_template.md").exists())
+
+            meta = yaml.safe_load((second_dir / "meta.yaml").read_text(encoding="utf-8"))
+            iteration = yaml.safe_load((second_dir / "iteration.yaml").read_text(encoding="utf-8"))
+            self.assertEqual(meta["parent_strategy"], parent)
+            self.assertEqual(meta["parent_version_id"], first["strategy"])
+            self.assertEqual(meta["parent_version_scope"], "draft")
+            self.assertEqual(iteration["parent_strategy"], parent)
+            self.assertEqual(iteration["parent_version_id"], first["strategy"])
+            self.assertEqual(iteration["parent_version_scope"], "draft")
+        finally:
+            if parent_dir.exists():
+                shutil.rmtree(parent_dir)
+            for d in set(sm.DRAFT_DIR.glob(f"{parent}_iter_*")) - draft_dirs_before:
+                if d.exists():
+                    shutil.rmtree(d)
+            for p in set(report_dir.glob(f"{parent}_iter_*")) - report_files_before:
+                if p.exists() and p.is_file():
+                    p.unlink()
+            if previous_active:
+                sm.ACTIVE_FILE.write_text(previous_active, encoding="utf-8")
+
 
 class BacktestEngineContractTests(unittest.TestCase):
     def _synthetic_bars(self):
@@ -751,6 +940,44 @@ class BacktestEngineContractTests(unittest.TestCase):
         self.assertEqual(len(trades), 1)
         self.assertEqual(trades.iloc[0]["exit_reason"], "strategy_trailing_stop")
         self.assertEqual(diagnostics["strategy_stop_exits"], 1)
+
+    def test_engine_can_size_initial_entry_by_account_risk(self):
+        from engine.backtest import BacktestEngine
+
+        bars = pd.DataFrame({
+            "date": pd.date_range("2024-01-01", periods=5, freq="D"),
+            "open": [100, 100, 104, 103, 102],
+            "high": [101, 105, 105, 104, 103],
+            "low": [99, 99, 101, 100, 99],
+            "close": [100, 104, 103, 102, 101],
+            "volume": [10000] * 5,
+            "signal_raw": [1, 0, 0, 0, 0],
+            "exit_signal": [0, 0, 0, 1, 0],
+        })
+        result = BacktestEngine(100000).run(
+            bars,
+            {
+                "position_sizing": "risk",
+                "risk_per_trade": 0.01,
+                "risk_stop_pct": 0.02,
+                "contract_multiplier": 10,
+                "margin_rate": 0.08,
+                "max_position": 20,
+                "slippage": 0,
+                "commission_rate": 0,
+                "init_stop": 0.5,
+            },
+        )
+        trades = result["trades"]
+        first = trades.iloc[0]
+
+        # Allowed loss = 100000 * 1% = 1000.
+        # Risk per lot = 100 entry price * 2% stop distance * multiplier 10 = 20.
+        # max_position caps the raw 50 risk lots to 20.
+        self.assertEqual(first["sizing_model"], "risk")
+        self.assertEqual(int(first["raw_risk_lots"]), 50)
+        self.assertEqual(int(first["position_size"]), 20)
+        self.assertEqual(result["stats"]["diagnostics"]["position_sizing"], "risk")
 
 
 if __name__ == "__main__":

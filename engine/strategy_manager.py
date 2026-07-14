@@ -4,6 +4,7 @@ import importlib.util
 import shutil
 import sys
 import re
+import json
 from datetime import datetime
 from typing import Optional, Tuple
 import yaml
@@ -26,6 +27,33 @@ def _load_meta(strategy_dir: Path) -> dict:
         return {}
     with open(mp, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def _infer_display_name(strategy_dir: Path, fallback: str) -> str:
+    spec_path = strategy_dir / "strategy_spec.json"
+    if spec_path.exists():
+        try:
+            spec = json.loads(spec_path.read_text(encoding="utf-8"))
+            name = str(spec.get("strategy_name") or "").strip()
+            if name and name not in {"未命名策略", "海龟交易趋势突破", "双均线趋势跟踪"}:
+                return name
+        except Exception:
+            pass
+    readme_path = strategy_dir / "README.md"
+    if readme_path.exists():
+        try:
+            first_line = readme_path.read_text(encoding="utf-8").splitlines()[0].strip()
+            if first_line.startswith("#"):
+                title = first_line.lstrip("#").strip()
+                if title:
+                    return title
+        except Exception:
+            pass
+    meta = _load_meta(strategy_dir)
+    candidate = str(meta.get("name") or "").strip()
+    if candidate and candidate != "新策略草稿" and not candidate.startswith("draft_"):
+        return candidate
+    return fallback
 
 
 def _parse_active_ref(raw: str) -> Tuple[Optional[str], Optional[str]]:
@@ -65,6 +93,33 @@ def is_complete_strategy(sid: str) -> bool:
     return bool(_load_meta(COMPLETED_DIR / sid).get("complete", False))
 
 
+def _safe_report_prefix(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]+", "_", value or "").strip("_")
+
+
+def _has_report_artifact(sid: str) -> bool:
+    report_dir = ROOT / "reports" / "web"
+    if not report_dir.exists():
+        return False
+    prefixes = [sid]
+    safe_sid = _safe_report_prefix(sid)
+    if safe_sid and safe_sid != sid:
+        prefixes.append(safe_sid)
+    return any(any(report_dir.glob(f"{prefix}_*_backtest.html")) for prefix in prefixes if prefix)
+
+
+def _is_complete_draft_version(sid: str) -> bool:
+    draft_dir = DRAFT_DIR / sid
+    if not draft_dir.exists() or not draft_dir.is_dir():
+        return False
+    return bool(
+        (draft_dir / "model.py").exists()
+        and (draft_dir / "check_report.md").exists()
+        and (draft_dir / "analysis_template.md").exists()
+        and _has_report_artifact(sid)
+    )
+
+
 def list_strategies():
     _ensure_dirs()
     result = []
@@ -78,16 +133,86 @@ def list_strategies():
             if pp.exists():
                 with open(pp, "r", encoding="utf-8") as f:
                     params = yaml.safe_load(f) or {}
-            display_name = meta.get("name") or d.name
-            readme = d / "README.md"
-            if not meta.get("name") and readme.exists():
-                try:
-                    first_line = readme.read_text(encoding="utf-8").splitlines()[0].strip()
-                    if first_line.startswith("#"):
-                        display_name = first_line.lstrip("#").strip()
-                except Exception:
-                    pass
-            result.append({"id": d.name, "name": display_name, "params": params, "meta": meta})
+            display_name = _infer_display_name(d, d.name)
+            versions = [{
+                "id": d.name,
+                "scope": "complete",
+                "name": f"{display_name} v1",
+                "label": "v1 基线",
+                "params": params,
+                "meta": meta,
+            }]
+            draft_dirs = sorted(
+                (p for p in (DRAFT_DIR.iterdir() if DRAFT_DIR.exists() else []) if p.is_dir()),
+                key=lambda p: p.stat().st_mtime,
+            )
+            for draft in draft_dirs:
+                if not draft.is_dir() or not (draft / "model.py").exists():
+                    continue
+                draft_meta = _load_meta(draft)
+                if draft_meta.get("parent_strategy") != d.name:
+                    continue
+                if not _has_report_artifact(draft.name):
+                    continue
+                if not (draft / "check_report.md").exists() or not (draft / "analysis_template.md").exists():
+                    continue
+                draft_params = {}
+                pp2 = draft / "params.yaml"
+                if pp2.exists():
+                    with open(pp2, "r", encoding="utf-8") as f:
+                        draft_params = yaml.safe_load(f) or {}
+                iteration = {}
+                iteration_path = draft / "iteration.yaml"
+                if iteration_path.exists():
+                    with open(iteration_path, "r", encoding="utf-8") as f:
+                        iteration = yaml.safe_load(f) or {}
+                version_index = len(versions) + 1
+                draft_name = _infer_display_name(draft, f"{display_name} v{version_index}")
+                versions.append({
+                    "id": draft.name,
+                    "scope": "draft",
+                    "name": draft_name,
+                    "label": f"v{version_index} {draft_meta.get('iteration_type') or iteration.get('iteration_type') or '迭代'}",
+                    "params": draft_params,
+                    "meta": draft_meta,
+                    "iteration": iteration,
+                })
+            result.append({"id": d.name, "name": display_name, "params": params, "meta": meta, "versions": versions})
+    return result
+
+
+def list_draft_strategies():
+    _ensure_dirs()
+    result = []
+    if not DRAFT_DIR.exists():
+        return result
+    draft_dirs = sorted(
+        (p for p in DRAFT_DIR.iterdir() if p.is_dir()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for d in draft_dirs:
+        meta = _load_meta(d)
+        if meta.get("complete") or (COMPLETED_DIR / d.name).exists():
+            continue
+        if meta.get("parent_strategy"):
+            continue
+        readme = d / "README.md"
+        model = d / "model.py"
+        check_report = d / "check_report.md"
+        analysis_template = d / "analysis_template.md"
+        display_name = _infer_display_name(d, d.name)
+        result.append({
+            "id": d.name,
+            "scope": "draft",
+            "name": display_name,
+            "meta": meta,
+            "has_readme": readme.exists(),
+            "has_model": model.exists(),
+            "has_check_report": check_report.exists(),
+            "has_analysis": analysis_template.exists(),
+            "updated_at": d.stat().st_mtime,
+        })
     return result
 
 
@@ -98,27 +223,44 @@ def _slugify(value: str, fallback: str = "iteration") -> str:
     return (text or fallback)[:36]
 
 
-def create_strategy_iteration(parent_sid: str, iteration_type: str = "free_edit", note: str = "", name: str = "") -> dict:
-    """Create a draft strategy version from a completed parent without mutating the parent."""
+def create_strategy_iteration(
+    parent_sid: str,
+    iteration_type: str = "free_edit",
+    note: str = "",
+    name: str = "",
+    parent_scope: str = "complete",
+) -> dict:
+    """Create a draft strategy version from a completed parent version."""
     _ensure_dirs()
-    parent_dir = COMPLETED_DIR / parent_sid
-    if not parent_dir.exists() or not is_complete_strategy(parent_sid):
-        raise ValueError(f"Parent strategy is not a completed strategy: {parent_sid}")
+    parent_scope = parent_scope if parent_scope in {"complete", "draft"} else get_strategy_scope(parent_sid)
+    parent_dir = _strategy_dir_for_scope(parent_sid, parent_scope)
+    if parent_scope == "complete":
+        if not parent_dir.exists() or not is_complete_strategy(parent_sid):
+            raise ValueError(f"Parent strategy is not a completed strategy: {parent_sid}")
+    elif not _is_complete_draft_version(parent_sid):
+        raise ValueError(f"Parent version is not a completed version: {parent_sid}")
+
+    parent_meta = _load_meta(parent_dir)
+    parent_iteration = {}
+    parent_iteration_path = parent_dir / "iteration.yaml"
+    if parent_iteration_path.exists():
+        with open(parent_iteration_path, "r", encoding="utf-8") as f:
+            parent_iteration = yaml.safe_load(f) or {}
+    root_sid = parent_meta.get("parent_strategy") or parent_iteration.get("parent_strategy") or parent_sid
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     suffix_source = note or iteration_type or "iteration"
-    draft_sid = f"{parent_sid}_iter_{_slugify(suffix_source)}_{timestamp}"
+    draft_sid = f"{root_sid}_iter_{_slugify(suffix_source)}_{timestamp}"
     draft_sid = draft_sid[:80]
     draft_dir = DRAFT_DIR / draft_sid
     counter = 1
     while draft_dir.exists():
-        draft_sid = f"{parent_sid}_iter_{_slugify(suffix_source)}_{timestamp}_{counter}"
+        draft_sid = f"{root_sid}_iter_{_slugify(suffix_source)}_{timestamp}_{counter}"
         draft_sid = draft_sid[:80]
         draft_dir = DRAFT_DIR / draft_sid
         counter += 1
 
     shutil.copytree(parent_dir, draft_dir)
-    parent_meta = _load_meta(parent_dir)
     display_parent = parent_meta.get("name") or parent_sid
     iteration_name = (name or "").strip() or f"{display_parent} 迭代版"
     changed_stages = ["stage_1", "stage_2", "stage_3", "stage_4", "stage_5"]
@@ -126,10 +268,13 @@ def create_strategy_iteration(parent_sid: str, iteration_type: str = "free_edit"
         changed_stages = ["stage_2", "stage_3", "stage_4", "stage_5"]
 
     iteration = {
-        "parent_strategy": parent_sid,
+        "parent_strategy": root_sid,
+        "parent_version_id": parent_sid,
+        "parent_version_scope": parent_scope,
         "parent_name": display_parent,
+        "parent_version_name": display_parent,
         "iteration_type": iteration_type or "free_edit",
-        "change_summary": note or "基于父策略创建迭代版本",
+        "change_summary": note or "基于父版本创建迭代版本",
         "changed_stages": changed_stages,
         "hypothesis": note or "验证该改动是否改善父版本的回测证据",
         "success_metrics": [
@@ -140,7 +285,7 @@ def create_strategy_iteration(parent_sid: str, iteration_type: str = "free_edit"
         ],
         "anti_overfit_checks": [
             "不要只看单品种最优结果",
-            "参数改善需要观察稳定区间而不是单点最优",
+            "参数改善需要观察稳定区间，而不是单点最优",
             "若改动减少交易次数，必须检查统计显著性",
         ],
         "parent_compare_status": "等待迭代版本完成回测后对比",
@@ -155,7 +300,9 @@ def create_strategy_iteration(parent_sid: str, iteration_type: str = "free_edit"
         "complete": False,
         "example": False,
         "name": iteration_name,
-        "parent_strategy": parent_sid,
+        "parent_strategy": root_sid,
+        "parent_version_id": parent_sid,
+        "parent_version_scope": parent_scope,
         "iteration_type": iteration["iteration_type"],
         "iteration_note": iteration["change_summary"],
         "completed_stage": 0,
@@ -171,7 +318,6 @@ def create_strategy_iteration(parent_sid: str, iteration_type: str = "free_edit"
 
     set_active(draft_sid, "draft")
     return {"status": "ok", "strategy": draft_sid, "scope": "draft", "meta": meta, "iteration": iteration}
-
 
 def get_active_scope() -> str:
     _ensure_dirs()
@@ -291,7 +437,7 @@ def mark_strategy_complete(sid: str, name: str = None, completed_stage: int = 5,
     existing = _load_meta(target_dir)
     candidate_name = (name or "").strip()
     if not candidate_name or set(candidate_name) == {"?"}:
-        candidate_name = existing.get("name") or sid
+        candidate_name = _infer_display_name(target_dir, existing.get("name") or sid)
     meta = {
         "complete": True,
         "example": bool(existing.get("example", False) or example),
@@ -304,3 +450,4 @@ def mark_strategy_complete(sid: str, name: str = None, completed_stage: int = 5,
         yaml.dump(meta, f, default_flow_style=False, allow_unicode=True)
     set_active(sid, "complete")
     return meta
+

@@ -26,9 +26,18 @@ body{overflow:hidden}
 .history-panel.show{display:block}
 .history-title{font-size:12px;font-weight:700;color:#52667a;margin-bottom:8px}
 .history-list{display:flex;flex-direction:column;gap:8px}
+.history-section{display:flex;flex-direction:column;gap:8px}
+.history-section-title{font-size:11px;font-weight:800;color:#7b8fa3;letter-spacing:.02em;padding-left:2px}
 .history-row{display:grid;grid-template-columns:1fr 30px;gap:6px;align-items:stretch}
 .history-item{width:100%;border:1px solid #d8e1eb;background:#fff;color:#243244;border-radius:8px;padding:10px 12px;text-align:left;font-size:13px;line-height:1.5;cursor:pointer;overflow:hidden;text-overflow:ellipsis}
 .history-item:hover{border-color:#1565c0;background:#f8fbff;color:#1565c0}
+.history-item small{display:block;color:#7b8fa3;margin-top:2px}
+.history-group{display:flex;flex-direction:column;gap:6px}
+.history-versions{display:none;margin:0 0 4px 10px;padding-left:10px;border-left:2px solid #d8e1eb;gap:6px;flex-direction:column}
+.history-versions.show{display:flex}
+.history-version{border:1px solid #d8e1eb;background:#fff;color:#334e68;border-radius:7px;padding:8px 10px;text-align:left;font-size:12px;line-height:1.45;cursor:pointer}
+.history-version:hover{border-color:#1565c0;background:#f8fbff;color:#1565c0}
+.history-version small{display:block;color:#7b8fa3;margin-top:2px}
 .history-delete{border:1px solid #d8e1eb;background:#fff;color:#8ca0b3;border-radius:8px;font-size:18px;line-height:1;cursor:pointer}
 .history-delete:hover{border-color:#d92d20;color:#b42318;background:#fff5f5}
 .history-empty{font-size:12px;color:#8ca0b3;padding:8px 2px}
@@ -55,8 +64,8 @@ body{overflow:hidden}
 .stage.pending{color:#8ca0b3}
 .body{flex:1;overflow-y:auto;padding:26px 30px;background:#fff}
 .doc{max-width:1100px}
-.doc h1{font-size:24px;line-height:1.25;color:#102a43;margin-bottom:16px}
-.doc h2{font-size:18px;line-height:1.35;color:#102a43;margin:24px 0 10px;padding-bottom:8px;border-bottom:1px solid #e7eef6}
+.doc h1{font-size:26px;line-height:1.25;color:#102a43;margin-bottom:16px}
+.doc h2{font-size:19px;line-height:1.35;color:#102a43;margin:24px 0 10px;padding-bottom:8px;border-bottom:1px solid #e7eef6}
 .doc h3{font-size:15px;color:#1565c0;margin:18px 0 8px}
 .doc h4{font-size:14px;color:#334e68;margin:14px 0 6px}
 .doc p{font-size:14px;line-height:1.75;color:#334e68;margin:9px 0}
@@ -131,7 +140,22 @@ pre code{background:transparent;color:inherit;padding:0}
 .snippet-note{padding:10px 12px;color:#52667a;font-size:13px;line-height:1.65;border-bottom:1px solid #edf2f7}
 .snippet pre{border:none;border-radius:0;margin:0;max-height:300px;font-size:13px}
 .report-frame{width:100%;min-height:980px;height:980px;border:1px solid #d8e1eb;border-radius:10px;background:#fff;margin-top:0;overflow:hidden}
-.report-actions{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:14px 0 6px;font-size:13px;color:#5f7286}
+.report-switch{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0 10px}
+.report-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.report-tab{border:1px solid #d8e1eb;background:#fff;color:#52667a;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}
+.report-tab.active{background:#1565c0;border-color:#1565c0;color:#fff}
+.report-tab:hover{border-color:#1565c0;color:#1565c0}
+.report-tab.active:hover{color:#fff}
+.trade-panel{border:1px solid #d8e1eb;border-radius:10px;background:#fff;overflow:hidden}
+.trade-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#f8fbff;border-bottom:1px solid #d8e1eb;padding:12px 14px}
+.trade-panel-title{font-size:14px;font-weight:800;color:#102a43}
+.trade-panel-sub{font-size:12px;color:#66788a;margin-top:4px}
+.trade-table-wrap{max-height:760px;overflow:auto}
+.trade-table{min-width:980px}
+.trade-table th{position:sticky;top:0;z-index:1}
+.trade-table td,.trade-table th{font-size:12px;white-space:nowrap}
+.trade-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.report-actions{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:0;font-size:13px;color:#5f7286}
 .report-actions a{color:#1565c0;text-decoration:none;font-weight:600}
 .report-actions a:hover{text-decoration:underline}
 .pos{color:#c62828}
@@ -300,6 +324,7 @@ const state = {
   workflowStage: 1,
   isComplete: false,
   activeStrategy: "",
+  activeScope: "",
   reportUrl: "",
   reportDataFiles: {},
   symbols: {
@@ -323,6 +348,10 @@ const state = {
   selectedBacktestSymbol: "RB0",
   selectedBacktestSymbols: ["RB0","HC0","I0","AU0","AG0","M0"],
   multiSymbolResults: null,
+  backtestView: "report",
+  tradeRows: null,
+  tradeRowsUrl: "",
+  tradeRowsError: "",
   stageContent: {1:"",2:"",3:"",4:"",5:""},
   stage2Code: "",
   stageActions: {1:"",2:"",3:"",4:"",5:""},
@@ -330,7 +359,8 @@ const state = {
   strategySpec: null,
   iteration: null,
   iterationSuggestions: [],
-  iterationCompare: null
+  iterationCompare: null,
+  canIterate: false
 };
 
 function resetState(){
@@ -338,11 +368,16 @@ function resetState(){
   state.workflowStage = 1;
   state.isComplete = false;
   state.activeStrategy = "";
+  state.activeScope = "";
   state.reportUrl = "";
   state.reportDataFiles = {};
   state.selectedBacktestSymbol = "RB0";
   state.selectedBacktestSymbols = ["RB0","HC0","I0","AU0","AG0","M0"];
   state.multiSymbolResults = null;
+  state.backtestView = "report";
+  state.tradeRows = null;
+  state.tradeRowsUrl = "";
+  state.tradeRowsError = "";
   state.stageContent = {1:"",2:"",3:"",4:"",5:""};
   state.stage2Code = "";
   state.stageActions = {1:"",2:"",3:"",4:"",5:""};
@@ -351,10 +386,18 @@ function resetState(){
   state.iteration = null;
   state.iterationSuggestions = [];
   state.iterationCompare = null;
+  state.canIterate = false;
   const iterateBtn = E("iterateBtn");
   if(iterateBtn) iterateBtn.style.display = "none";
   const exportBtn = E("exportBtn");
   if(exportBtn) exportBtn.style.display = "none";
+}
+
+function resetTradeCache(){
+  state.backtestView = "report";
+  state.tradeRows = null;
+  state.tradeRowsUrl = "";
+  state.tradeRowsError = "";
 }
 
 function updateGuide(stage){
@@ -385,8 +428,10 @@ function renderNewChatHome(){
   state.workflowStage = 1;
   state.isComplete = false;
   state.activeStrategy = "";
+  state.activeScope = "";
   state.reportUrl = "";
   state.reportDataFiles = {};
+  resetTradeCache();
   state.backtestSummary = null;
   state.selectedBacktestSymbol = "RB0";
   state.selectedBacktestSymbols = ["RB0","HC0","I0","AU0","AG0","M0"];
@@ -425,21 +470,41 @@ async function newChat(){
   E("inp").focus();
 }
 
-function populateHistory(list){
-  const box = E("historyList");
-  box.innerHTML = "";
+function renderCompletedHistorySection(list, host){
+  const section = document.createElement("div");
+  section.className = "history-section";
+  const title = document.createElement("div");
+  title.className = "history-section-title";
+  title.textContent = "已完成策略";
+  section.appendChild(title);
   if(!list || !list.length){
-    box.innerHTML = '<div class="history-empty">暂无已完成策略</div>';
+    const empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.textContent = "暂无已完成策略";
+    section.appendChild(empty);
+    host.appendChild(section);
     return;
   }
-  list.forEach(function(item){
+  list.forEach(function(item, index){
+    const group = document.createElement("div");
+    group.className = "history-group";
     const row = document.createElement("div");
     row.className = "history-row";
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "history-item";
-    btn.textContent = item.name || item.id;
-    btn.onclick = function(){ switchStrategy(item.id); };
+    const versions = item.versions || [];
+    btn.textContent = (item.name || item.id) + (versions.length > 1 ? "  ·  " + versions.length + "个版本" : "");
+    const versionsBox = document.createElement("div");
+    versionsBox.className = "history-versions";
+    versionsBox.id = "historyVersions" + index;
+    if(versions.length > 1){
+      btn.onclick = function(){
+        versionsBox.classList.toggle("show");
+      };
+    }else{
+      btn.onclick = function(){ switchStrategy(item.id, "complete"); };
+    }
     const del = document.createElement("button");
     del.type = "button";
     del.className = "history-delete";
@@ -451,8 +516,33 @@ function populateHistory(list){
     };
     row.appendChild(btn);
     row.appendChild(del);
-    box.appendChild(row);
+    group.appendChild(row);
+    if(versions.length > 1){
+      versions.forEach(function(version){
+        const vb = document.createElement("button");
+        vb.type = "button";
+        vb.className = "history-version";
+        const label = version.label || version.name || version.id;
+        const mode = version.params && version.params.position_sizing ? ("仓位：" + version.params.position_sizing) : "";
+        vb.innerHTML = escapeHtml(label) + "<small>" + escapeHtml(version.name || version.id) + (mode ? " · " + escapeHtml(mode) : "") + "</small>";
+        vb.onclick = function(){ switchStrategy(version.id, version.scope || "complete"); };
+        versionsBox.appendChild(vb);
+      });
+      group.appendChild(versionsBox);
+    }
+    section.appendChild(group);
   });
+  host.appendChild(section);
+}
+
+function populateHistory(list){
+  const box = E("historyList");
+  box.innerHTML = "";
+  if(!list || !list.length){
+    box.innerHTML = '<div class="history-empty">暂无已完成策略</div>';
+    return;
+  }
+  renderCompletedHistorySection(list || [], box);
 }
 
 async function deleteHistoryStrategy(id, name){
@@ -680,6 +770,24 @@ function sanitizeDisplayText(input){
   const source = String(input || "").replace(/\r\n/g, "\n").split("\n");
   const cleaned = [];
   let inFence = false;
+  const hiddenLinePatterns = [
+    /^回测报告：\s*\/reports\//,
+    /^完整回测 HTML：/,
+    /^Strategy\s*=/,
+    /^策略文档已完成[。.]?$/,
+    /^当前只是查看阶段说明/,
+    /^真实产出会在左侧对话完成对应步骤后自动写入这里/,
+    /^当前阶段：\s*\d+\s*[-－]/,
+    /^---$/,
+    /^\[策略.*\]$/,
+    /^\[.*已自动保存并通过基础校验.*\]$/,
+    /^用户确认记录$/,
+    /^重要提示：/,
+    /^确认无误后请输入[“"]?进入阶段\d+[”"]?/,
+    /^在此之前你可以继续提问/,
+    /^点击[“"]?确定[”"]?表示你接受这些规则/,
+    /^阶段\d校验通过[，,:：]?/,
+  ];
   source.forEach(function(line){
     const trimmed = line.trim();
     if(trimmed.startsWith("```")){
@@ -688,13 +796,14 @@ function sanitizeDisplayText(input){
       return;
     }
     if(!inFence){
-      if(/^回测报告：\s*\/reports\//.test(trimmed)) return;
-      if(trimmed === "策略文档已完成。" || trimmed === "策略文档已完成") return;
-      if(/^Strategy\s*=/.test(trimmed)) return;
+      if(hiddenLinePatterns.some(function(pattern){ return pattern.test(trimmed); })) return;
     }
     cleaned.push(line);
   });
-  return cleaned.join("\n").trim();
+  return cleaned
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function refreshStageLocks(){
@@ -720,6 +829,7 @@ function setBacktestSymbol(value){
   state.backtestSummary = null;
   state.reportUrl = "";
   state.reportDataFiles = {};
+  resetTradeCache();
   state.multiSymbolResults = null;
   if(state.currentStage === 3) renderStage(3);
 }
@@ -777,22 +887,211 @@ function renderBacktestStage(){
   html += renderBacktestControls();
   html += stage3BriefHtml(state.backtestSummary);
   html += multiSymbolResultsHtml(state.multiSymbolResults);
-  if(state.reportUrl){
-    html += '<iframe class="report-frame" data-report-src="' + escapeHtml(state.reportUrl) + '" title="回测报告" scrolling="no"></iframe>';
-  }else{
-    html += '<div class="empty-state"><p>回测报告生成中</p></div>';
-  }
   const files = state.reportDataFiles || {};
-  if(files.trades || files.equity || files.bars){
+  html += '<div class="report-switch">';
+  html += '<div class="report-tabs">';
+  html += '<button class="report-tab ' + (state.backtestView === "report" ? "active" : "") + '" onclick="setBacktestView(\'report\')">回测报告</button>';
+  if(files.trades){
+    html += '<button class="report-tab ' + (state.backtestView === "trades" ? "active" : "") + '" onclick="setBacktestView(\'trades\')">交易明细</button>';
+  }
+  html += '</div>';
+  if(files.equity || files.bars || files.trades){
     html += '<div class="report-actions">';
-    if(files.trades) html += '<a href="' + escapeHtml(files.trades) + '" target="_blank">交易明细</a>';
+    if(files.trades) html += '<a href="' + escapeHtml(files.trades) + '" target="_blank">下载明细CSV</a>';
     if(files.equity) html += '<a href="' + escapeHtml(files.equity) + '" target="_blank">资金曲线</a>';
     if(files.bars) html += '<a href="' + escapeHtml(files.bars) + '" target="_blank">信号K线数据</a>';
     html += "</div>";
   }
+  html += '</div>';
+  if(state.backtestView === "trades" && files.trades){
+    html += renderTradeDetailPanel();
+  }else if(state.reportUrl){
+    html += '<iframe class="report-frame" data-report-src="' + escapeHtml(state.reportUrl) + '" title="回测报告" scrolling="no"></iframe>';
+  }else{
+    html += '<div class="empty-state"><p>回测报告生成中</p></div>';
+  }
   html += state.stageActions[3] || "";
   html += "</div>";
   return html;
+}
+
+function setBacktestView(view){
+  state.backtestView = view === "trades" ? "trades" : "report";
+  E("body").innerHTML = renderBacktestStage();
+  if(state.backtestView === "report"){
+    loadEmbeddedReports();
+  }else{
+    ensureTradeRowsLoaded();
+  }
+}
+
+function parseCsv(text){
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+  for(let i=0;i<text.length;i++){
+    const ch = text[i];
+    const next = text[i + 1];
+    if(inQuotes){
+      if(ch === '"' && next === '"'){
+        cell += '"';
+        i++;
+      }else if(ch === '"'){
+        inQuotes = false;
+      }else{
+        cell += ch;
+      }
+    }else{
+      if(ch === '"'){
+        inQuotes = true;
+      }else if(ch === ","){
+        row.push(cell);
+        cell = "";
+      }else if(ch === "\n"){
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = "";
+      }else if(ch !== "\r"){
+        cell += ch;
+      }
+    }
+  }
+  if(cell || row.length){
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function tradeColumnLabel(key){
+  const labels = {
+    entry_date: "入场日",
+    entry_signal_date: "信号日",
+    entry_fill_mode: "入场方式",
+    entry_price: "入场价",
+    exit_date: "出场日",
+    exit_signal_date: "出场信号日",
+    exit_fill_mode: "出场方式",
+    exit_price: "出场价",
+    direction: "方向",
+    position_size: "手数",
+    add_count: "加仓次数",
+    sizing_model: "仓位模型",
+    risk_amount: "允许亏损",
+    risk_per_lot: "每手风险",
+    raw_risk_lots: "风险手数",
+    margin_lots: "保证金可开",
+    exit_reason: "退出原因",
+    bars_held: "持仓K线",
+    gross_pnl: "毛盈亏",
+    fee: "总成本",
+    commission: "手续费",
+    slippage_cost: "滑点诊断",
+    impact_cost: "冲击成本",
+    total_cost: "引擎入账成本",
+    economic_cost: "经济成本",
+    net_pnl: "净盈亏"
+  };
+  return labels[key] || key;
+}
+
+function tradeCellHtml(key, value){
+  if(key === "direction"){
+    return value === "long" ? "多头" : value === "short" ? "空头" : value;
+  }
+  if(key === "exit_reason") return exitReasonLabel(value);
+  if(key === "sizing_model") return value || "fixed";
+  const numericCols = {
+    entry_price:2, exit_price:2, position_size:0, add_count:0,
+    risk_amount:2, risk_per_lot:2, raw_risk_lots:0, margin_lots:0,
+    bars_held:0, gross_pnl:2, fee:2, commission:2, slippage_cost:2,
+    impact_cost:2, total_cost:2, economic_cost:2, net_pnl:2
+  };
+  if(Object.prototype.hasOwnProperty.call(numericCols, key)){
+    return fmtNumber(Number(value || 0), numericCols[key]);
+  }
+  return value || "";
+}
+
+function renderTradeDetailPanel(){
+  const files = state.reportDataFiles || {};
+  let html = '<div class="trade-panel">';
+  html += '<div class="trade-panel-head">';
+  html += '<div><div class="trade-panel-title">交易明细</div>';
+  html += '<div class="trade-panel-sub">从回测交易明细 CSV 自动渲染；用于核对每笔交易的入场、出场、手数、成本和盈亏。</div></div>';
+  if(files.trades){
+    html += '<div class="report-actions"><a href="' + escapeHtml(files.trades) + '" target="_blank">下载CSV</a></div>';
+  }
+  html += '</div>';
+  if(state.tradeRowsError){
+    html += '<div class="empty-state"><p>交易明细加载失败</p><p style="font-size:12px">' + escapeHtml(state.tradeRowsError) + '</p></div>';
+  }else if(!state.tradeRows){
+    html += '<div class="empty-state"><p>交易明细加载中...</p></div>';
+  }else if(!state.tradeRows.length){
+    html += '<div class="empty-state"><p>本次回测没有交易明细</p></div>';
+  }else{
+    const preferred = [
+      "entry_signal_date","entry_date","direction","entry_price",
+      "exit_date","exit_price","exit_reason","sizing_model","position_size",
+      "bars_held","gross_pnl","economic_cost","net_pnl"
+    ];
+    const keys = Object.keys(state.tradeRows[0] || {});
+    const columns = preferred.filter(function(k){ return keys.indexOf(k) >= 0; });
+    keys.forEach(function(k){ if(columns.indexOf(k) < 0 && columns.length < 18) columns.push(k); });
+    html += '<div class="trade-table-wrap"><table class="trade-table"><thead><tr>';
+    columns.forEach(function(key){ html += '<th>' + escapeHtml(tradeColumnLabel(key)) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    state.tradeRows.slice(0, 200).forEach(function(row){
+      html += '<tr>';
+      columns.forEach(function(key){
+        const val = row[key] == null ? "" : String(row[key]);
+        const isNum = ["entry_price","exit_price","position_size","add_count","risk_amount","risk_per_lot","raw_risk_lots","margin_lots","bars_held","gross_pnl","fee","commission","slippage_cost","impact_cost","total_cost","economic_cost","net_pnl"].indexOf(key) >= 0;
+        let cls = isNum ? "num" : "";
+        if(key === "net_pnl" || key === "gross_pnl"){
+          const n = Number(val || 0);
+          cls += n > 0 ? " pos" : n < 0 ? " neg" : "";
+        }
+        html += '<td class="' + cls.trim() + '">' + escapeHtml(tradeCellHtml(key, val)) + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    if(state.tradeRows.length > 200){
+      html += '<div class="trade-panel-head"><div class="trade-panel-sub">当前仅展示前 200 笔，共 ' + escapeHtml(state.tradeRows.length) + ' 笔；完整数据可下载 CSV。</div></div>';
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+async function ensureTradeRowsLoaded(){
+  const url = (state.reportDataFiles || {}).trades || "";
+  if(!url) return;
+  if(state.tradeRows && state.tradeRowsUrl === url) return;
+  state.tradeRows = null;
+  state.tradeRowsError = "";
+  state.tradeRowsUrl = url;
+  try{
+    const r = await fetch(url, {cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const rows = parseCsv(await r.text());
+    const header = rows.shift() || [];
+    state.tradeRows = rows
+      .filter(function(row){ return row.some(function(cell){ return String(cell || "").trim(); }); })
+      .map(function(row){
+        const item = {};
+        header.forEach(function(key, i){ item[key] = row[i] == null ? "" : row[i]; });
+        return item;
+      });
+  }catch(e){
+    state.tradeRowsError = e.message || String(e);
+    state.tradeRows = [];
+  }
+  if(state.currentStage === 3 && state.backtestView === "trades"){
+    E("body").innerHTML = renderBacktestStage();
+  }
 }
 
 function multiSymbolResultsHtml(result){
@@ -1082,7 +1381,11 @@ function renderStage(stage){
   refreshStageLocks();
   if(stage === 3){
     E("body").innerHTML = renderBacktestStage();
-    loadEmbeddedReports();
+    if(state.backtestView === "trades"){
+      ensureTradeRowsLoaded();
+    }else{
+      loadEmbeddedReports();
+    }
     return;
   }
   const meta = stages[stage];
@@ -1176,12 +1479,17 @@ async function saveStageArtifact(stage, content){
 function hydrateWorkspace(current){
   resetState();
   state.activeStrategy = current.active || "";
-  state.isComplete = !!(current.complete || current.scope === "complete");
+  state.activeScope = current.scope || "";
+  state.isComplete = !!(current.complete || current.scope === "complete" || current.version_complete);
+  state.canIterate = !!current.can_iterate;
   state.stageContent[1] = current.readme || "";
   state.stage2Code = current.code || "";
   state.stageContent[2] = current.code ? "```python\n" + current.code + "\n```" : "";
   state.stageContent[4] = current.check_report || "";
   state.stageContent[5] = current.analysis_template || "";
+  if(current.multi_symbol_validation){
+    state.stageContent[5] = [state.stageContent[5], current.multi_symbol_validation].filter(Boolean).join("\n\n");
+  }
   state.reportUrl = current.report_url || "";
   state.reportDataFiles = current.data_files || {};
   state.symbols = Object.assign({}, state.symbols || {"RB0":"螺纹钢"}, current.symbols || {});
@@ -1232,7 +1540,7 @@ async function loadOverview(){
   hydrateWorkspace(current);
   const iterateBtn = E("iterateBtn");
   if(iterateBtn){
-    iterateBtn.style.display = state.isComplete && state.activeStrategy ? "inline-flex" : "none";
+    iterateBtn.style.display = state.canIterate && state.activeStrategy ? "inline-flex" : "none";
   }
   const exportBtn = E("exportBtn");
   if(exportBtn){
@@ -1243,16 +1551,19 @@ async function loadOverview(){
 async function syncActiveStrategyFromChat(data){
   if(!data || !data.active) return;
   state.activeStrategy = data.active;
+  state.activeScope = data.scope || "";
   state.isComplete = data.scope !== "draft";
+  state.canIterate = data.scope !== "draft";
   if(data.scope === "draft"){
     E("currentStrategyLabel").textContent = "当前策略：新策略草稿";
   }
   const iterateBtn = E("iterateBtn");
-  if(iterateBtn) iterateBtn.style.display = state.isComplete && state.activeStrategy ? "inline-flex" : "none";
+  if(iterateBtn) iterateBtn.style.display = state.canIterate && state.activeStrategy ? "inline-flex" : "none";
   const exportBtn = E("exportBtn");
   if(exportBtn) exportBtn.style.display = state.activeStrategy ? "inline-flex" : "none";
   try{
-    populateHistory(await G("/api/strategies"));
+    const list = await G("/api/strategies");
+    populateHistory(list);
   }catch(e){}
 }
 
@@ -1280,8 +1591,9 @@ async function loadWorkflowStage(){
   renderStage(Math.min(state.workflowStage, 5));
 }
 
-async function switchStrategy(id){
-  await fetch("/api/strategy/switch?id=" + encodeURIComponent(id), {method:"POST"});
+async function switchStrategy(id, scope){
+  const actualScope = scope || "complete";
+  await fetch("/api/strategy/switch?id=" + encodeURIComponent(id) + "&scope=" + encodeURIComponent(actualScope), {method:"POST"});
   E("chat").innerHTML = "";
   E("historyPanel").classList.remove("show");
   await loadOverview();
@@ -1446,6 +1758,7 @@ async function runBacktest(){
       state.backtestSummary = null;
       state.reportUrl = "";
       state.reportDataFiles = {};
+      resetTradeCache();
       state.stageContent[3] = data.error;
       renderStage(3);
       addMessage("sys","回测失败：" + data.error);
@@ -1455,6 +1768,7 @@ async function runBacktest(){
     state.backtestSummary = Object.assign({symbol:state.selectedBacktestSymbol}, data.details || {});
     state.reportUrl = data.report_url || "";
     state.reportDataFiles = data.data_files || {};
+    resetTradeCache();
     state.workflowStage = Math.max(state.workflowStage, 3);
     state.stageActions[3] = state.isComplete ? "" : '<div class="action-row"><button class="btn" onclick="goToNextStage(4)">进入阶段4：检查</button></div>';
     renderStage(3);
@@ -1483,6 +1797,7 @@ async function runMultiSymbolBacktest(){
       state.backtestSummary = null;
       state.reportUrl = "";
       state.reportDataFiles = {};
+      resetTradeCache();
       state.stageContent[3] = data.error;
       renderStage(3);
       addMessage("sys","多品种初筛失败：" + data.error);
@@ -1493,6 +1808,7 @@ async function runMultiSymbolBacktest(){
     state.backtestSummary = Object.assign({symbol:state.selectedBacktestSymbol}, data.details || {});
     state.reportUrl = data.report_url || "";
     state.reportDataFiles = data.data_files || {};
+    resetTradeCache();
     state.workflowStage = Math.max(state.workflowStage, 3);
     state.stageActions[3] = state.isComplete ? "" : '<div class="action-row"><button class="btn" onclick="goToNextStage(4)">进入阶段4：检查</button></div>';
     renderStage(3);
@@ -1527,8 +1843,8 @@ async function completeCurrentStrategy(){
 }
 
 function showIterationModal(){
-  if(!state.activeStrategy || !state.isComplete){
-    addMessage("sys","只有已完成的历史策略可以创建迭代版本。");
+  if(!state.activeStrategy || !state.canIterate){
+    addMessage("sys","请先打开一个已完成的历史版本，再创建新的迭代版本。");
     return;
   }
   E("iterationStatus").textContent = "";
@@ -1605,6 +1921,7 @@ async function createIteration(){
   }
   const payload = {
     parent_strategy: state.activeStrategy,
+    parent_scope: state.activeScope || "complete",
     iteration_type: E("iterationType").value,
     note: E("iterationNote").value.trim(),
     name: E("iterationName").value.trim()

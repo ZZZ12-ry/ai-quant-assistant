@@ -197,6 +197,10 @@ def _strategy_type(text: str, template: dict[str, Any] | None) -> str:
     if template and template.get("strategy_type"):
         return str(template["strategy_type"])
     source = (text or "").lower()
+    if any(token in source for token in ["r-breaker", "rbreaker", "日内", "收盘前", "尾盘", "分钟", "5分钟", "intraday"]):
+        return "intraday"
+    if any(token in source for token in ["小时", "hour", "多时间", "多周期", "multi-timeframe", "multi timeframe"]):
+        return "multi_timeframe"
     if any(token in source for token in ["突破", "通道", "donchian", "海龟"]):
         return "trend_breakout"
     if any(token in source for token in ["均线", "expma", "ema", "斜率", "obv", "vwma"]):
@@ -204,6 +208,36 @@ def _strategy_type(text: str, template: dict[str, Any] | None) -> str:
     if any(token in source for token in ["套利", "价差"]):
         return "spread"
     return "unknown"
+
+
+def infer_data_requirements(text: str) -> dict[str, Any]:
+    """Infer the minimum data granularity needed to make a backtest meaningful."""
+    source = (text or "").lower()
+    reasons: list[str] = []
+    required = "daily"
+    supported_by_default = True
+
+    intraday_terms = ["r-breaker", "rbreaker", "日内", "收盘前", "尾盘", "分钟", "5分钟", "intraday"]
+    multiframe_terms = ["小时", "hour", "多时间", "多周期", "multi-timeframe", "multi timeframe"]
+    if any(token in source for token in intraday_terms):
+        required = "intraday"
+        supported_by_default = False
+        reasons.append("策略包含日内/尾盘/分钟级执行规则，日线OHLC无法还原盘中触发顺序。")
+    if any(token in source for token in multiframe_terms):
+        required = "multi_timeframe"
+        supported_by_default = False
+        reasons.append("策略包含多周期或小时线入场规则，当前默认日线数据不能验证完整逻辑。")
+    if "前一日" in source and any(token in source for token in ["六个关键价位", "bbreak", "sbreak", "senter", "benter"]):
+        required = "intraday"
+        supported_by_default = False
+        reasons.append("R-Breaker类规则需要以前一日价位指导当日盘中交易，不能只用日线收盘确认。")
+
+    return {
+        "required_frequency": required,
+        "default_platform_frequency": "daily",
+        "supported_by_default_backtest": supported_by_default,
+        "reasons": list(dict.fromkeys(reasons)),
+    }
 
 
 def _critical_pending_questions(rules: list[str]) -> list[str]:
@@ -261,6 +295,7 @@ def build_strategy_spec(markdown: str, user_input: str = "", root: Path | None =
         "schema_version": "1.0",
         "strategy_name": _extract_strategy_name(markdown),
         "strategy_type": _strategy_type(source_text, template),
+        "data_requirements": infer_data_requirements(source_text),
         "template_id": template.get("_template_id") if template else None,
         "template_source": "data/knowledge/strategy_templates" if template else None,
         "template_strategy_name": template.get("strategy_name") if template else None,

@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import csv
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -60,6 +61,19 @@ def _load_spec(strategy_dir: Path) -> Dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def _data_requirement_blockers(strategy_dir: Path) -> List[str]:
+    spec = _load_spec(strategy_dir)
+    req = spec.get("data_requirements") if isinstance(spec.get("data_requirements"), dict) else {}
+    if not req or req.get("supported_by_default_backtest", True):
+        return []
+    required = req.get("required_frequency", "unknown")
+    reasons = req.get("reasons") if isinstance(req.get("reasons"), list) else []
+    text = f"当前策略需要 {required} 数据；平台默认日线回测不能证明该策略复现有效。"
+    if reasons:
+        text += " " + "；".join(str(item) for item in reasons[:3])
+    return [text]
 
 
 def _strategy_name(strategy_dir: Path) -> str:
@@ -206,7 +220,7 @@ def _verification_focus(summary: Dict[str, Any]) -> List[str]:
     focus = [
         "入场复核：抽取典型交易，检查入场信号日前一根K线是否满足阶段一的趋势、形态、动能和突破条件。",
         "成交复核：确认信号在收盘后产生，回测引擎按下一根K线开盘价成交，而不是用信号K线价格成交。",
-        "手数复核：当前 v1 固定 1 手时，应明确它只是复现口径，不代表实盘资金管理。",
+        "手数复核：检查当前使用固定手数还是风险定手数，并确认交易明细中的手数计算可追溯。",
         "成本复核：检查手续费、滑点诊断值、保证金口径是否已经在交易明细中可追溯。",
     ]
     if rows:
@@ -314,7 +328,18 @@ def _code_audit(strategy_dir: Path) -> Dict[str, Any]:
         "通过" if (".shift(" in code or ".rolling(" in code) else "提醒",
         "通道、均线状态、突破条件原则上应使用历史窗口",
     ))
-    risky_state = [token for token in ["self.position", "self._current_position", "self._entry_price", "self._bars_held", "self._stop_price"] if token in code]
+    risky_state_patterns = [
+        r"self\.(?:_)?(?:current_)?position\b",
+        r"self\.(?:_)?entry_price\b",
+        r"self\.(?:_)?bars_(?:held|since_entry)\b",
+        r"self\.(?:_)?stop_price\b",
+        r"self\.(?:_)?has_added\b",
+        r"self\.(?:_)?add_count\b",
+    ]
+    risky_state = []
+    for pattern in risky_state_patterns:
+        risky_state.extend(match.group(0) for match in re.finditer(pattern, code))
+    risky_state = list(dict.fromkeys(risky_state))
     items.append((
         "交易状态归属",
         "未发现高风险 self 持仓状态" if not risky_state else "发现策略类持久化交易状态",
@@ -370,6 +395,11 @@ def _trade_examples_text(strategy_dir: Path, evidence: Dict[str, Any]) -> str:
         entry = fnum(row, "entry_price")
         exit_price = fnum(row, "exit_price")
         size = fnum(row, "position_size") or 1
+        sizing_model = row.get("sizing_model", "")
+        risk_amount = fnum(row, "risk_amount")
+        risk_per_lot = fnum(row, "risk_per_lot")
+        raw_risk_lots = fnum(row, "raw_risk_lots")
+        margin_lots = fnum(row, "margin_lots")
         gross = fnum(row, "gross_pnl")
         booked_cost = fnum(row, "total_cost") or fnum(row, "fee")
         economic_cost = fnum(row, "economic_cost") or booked_cost
@@ -385,6 +415,13 @@ def _trade_examples_text(strategy_dir: Path, evidence: Dict[str, Any]) -> str:
             f"- 入场价：{_plain(entry)}；出场日：{row.get('exit_date')}；出场价：{_plain(exit_price)}；"
             f"出场方式：{row.get('exit_fill_mode', '')}；退出原因：{_exit_label(row.get('exit_reason', ''))}；手数：{_plain(size, 0)}。\n"
         )
+        if sizing_model == "risk":
+            text += "```text\n"
+            text += "风险定手数 = floor(每笔允许亏损金额 / 每手风险金额)\n"
+            text += f"          = floor({_money(risk_amount)} / {_money(risk_per_lot)})\n"
+            text += f"          = {_plain(raw_risk_lots, 0)} 手\n"
+            text += f"最终手数 = min(风险手数 {_plain(raw_risk_lots, 0)}, 保证金可开 {_plain(margin_lots, 0)}, 最大手数上限) = {_plain(size, 0)} 手\n"
+            text += "```\n"
         text += "```text\n"
         text += "毛盈亏 = 方向 × (出场价 - 入场价) × 合约乘数 × 手数\n"
         text += f"      = {sign:+d} × ({_plain(exit_price)} - {_plain(entry)}) × {_plain(multiplier)} × {_plain(size, 0)}\n"
@@ -403,9 +440,11 @@ def build_stage4_check_report(strategy_dir: Path, evidence: Dict[str, Any]) -> s
     summary = summary if isinstance(summary, dict) else {}
     gate = summary.get("research_gate") if isinstance(summary.get("research_gate"), dict) else {}
     research_blockers = gate.get("blockers") if isinstance(gate.get("blockers"), list) else []
+    data_blockers = _data_requirement_blockers(strategy_dir)
     code = _code_audit(strategy_dir)
     code_blockers = [row[3] for row in code["items"] if row[2] == "阻断"]
-    can_continue = not code_blockers
+    trades = int(_num(summary, "total_trades"))
+    can_continue = not code_blockers and not data_blockers and trades > 0
     name = _strategy_name(strategy_dir)
 
     text = "## 检查结论\n\n"
@@ -416,10 +455,17 @@ def build_stage4_check_report(strategy_dir: Path, evidence: Dict[str, Any]) -> s
         )
         text += f"结论：**可以进入阶段5，但阶段5必须保持保守。** {_result_judgement(summary)}\n"
     else:
-        text += (
-            f"{name} 当前存在技术阻断项，不能把阶段3结果作为策略有效性证据。"
-            "应先修复代码接口、信号生成或回测前置问题，再重新回测。\n"
-        )
+        if data_blockers:
+            text += f"{name} 当前存在数据口径阻断项，不能把阶段3结果作为策略有效性证据。\n\n"
+            text += _bullet_list(data_blockers) + "\n"
+        elif trades == 0:
+            text += f"{name} 当前没有产生真实交易，不能说阶段1、阶段2和阶段3已经形成交易闭环。\n"
+            text += "应先回到阶段2检查信号条件、字段映射和数据频率，再重新回测。\n"
+        else:
+            text += (
+                f"{name} 当前存在技术阻断项，不能把阶段3结果作为策略有效性证据。"
+                "应先修复代码接口、信号生成或回测前置问题，再重新回测。\n"
+            )
 
     text += "\n## 本阶段要验证什么\n\n"
     text += _bullet_list(_verification_focus(summary)) + "\n"
@@ -475,7 +521,7 @@ def build_stage4_check_report(strategy_dir: Path, evidence: Dict[str, Any]) -> s
             if key in diagnostics:
                 text += f"| {label} | {diagnostics[key]} |\n"
 
-    risks = [*research_blockers, *_risk_points(summary)]
+    risks = [*data_blockers, *research_blockers, *_risk_points(summary)]
     text += "\n## 当前不能忽略的风险\n\n" + _bullet_list(list(dict.fromkeys(risks))) + "\n"
     return text
 
@@ -486,14 +532,20 @@ def build_stage5_analysis_report(strategy_dir: Path, evidence: Dict[str, Any]) -
     summary = summary if isinstance(summary, dict) else {}
     name = _strategy_name(strategy_dir)
     evaluation = summary.get("evaluation") if isinstance(summary.get("evaluation"), dict) else {}
+    data_blockers = _data_requirement_blockers(strategy_dir)
 
     text = "## 研究结论\n\n"
     text += f"{name} 当前的研究结论是："
-    text += _result_judgement(summary)
+    if data_blockers:
+        text += "当前数据口径不支持严肃验证该策略，不能把本轮阶段三结果解释为策略有效或无效。"
+    else:
+        text += _result_judgement(summary)
     if evaluation:
         rating = evaluation.get("rating", "")
-        decision = evaluation.get("decision", "")
-        score = evaluation.get("score", "")
+        decision = evaluation.get("decision_state") or evaluation.get("decision", "")
+        score = evaluation.get("total_score")
+        if score in ("", None):
+            score = evaluation.get("score", "")
         if score in ("", None):
             dimensions = evaluation.get("dimensions") or []
             if isinstance(dimensions, list) and dimensions:
@@ -502,14 +554,17 @@ def build_stage5_analysis_report(strategy_dir: Path, evidence: Dict[str, Any]) -
                 except Exception:
                     score = ""
         if rating or decision:
-            text += f"\n\n平台评分卡给出的结果是 **{rating}**，总分 {score}。{decision}"
+            score_text = f"{score}/100" if score not in ("", None) else "未给出"
+            text += f"\n\n平台评分卡给出的结果是 **{rating}**，总分 {score_text}。{decision}"
 
     text += "\n\n## 是否值得继续深入\n\n"
     trades = int(_num(summary, "total_trades"))
     net_profit = _num(summary, "net_profit")
     sharpe = _num(summary, "sharpe_ratio")
     payoff = _num(summary, "payoff_ratio")
-    if trades == 0:
+    if data_blockers:
+        text += "暂时不应讨论参数优化或实盘模拟。应先补齐该策略要求的数据频率，再重新生成阶段三到阶段五。\n"
+    elif trades == 0:
         text += "暂时不值得讨论优化方向。没有交易意味着当前版本还停留在代码/信号链路验证阶段。\n"
     elif net_profit > 0 and sharpe >= 0.8 and payoff >= 1.5:
         text += "值得继续深入，但下一步不是直接乐观推进，而是先确认结果是否来自稳定规则，而不是单一行情或单一品种。\n"
@@ -551,10 +606,10 @@ def build_stage5_analysis_report(strategy_dir: Path, evidence: Dict[str, Any]) -
     text += _bullet_list([
         "确认数据口径：连续合约结果不能直接等同于真实可交易合约，换月日期、展期价差和换月滑点需要补充。",
         "确认成交口径：当前按收盘确认、下一根开盘成交；止损按触及止损价成交，需要进一步压力测试跳空和涨跌停。",
-        "确认仓位口径：固定 1 手只适合复现和研究，真实模拟盘需要改成基于资金风险的手数计算。",
+        "确认仓位口径：复现模式可固定手数；研究/模拟盘应使用基于账户风险、止损距离和保证金约束的手数计算。",
         "确认成本口径：手续费、滑点、冲击成本要按品种和交易频率重新校准。",
     ]) + "\n"
 
     text += "\n## 当前不能忽略的风险\n\n"
-    text += _bullet_list(_risk_points(summary)) + "\n"
+    text += _bullet_list(list(dict.fromkeys([*data_blockers, *_risk_points(summary)]))) + "\n"
     return text

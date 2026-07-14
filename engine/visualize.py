@@ -5,6 +5,104 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
 from plotly.offline import get_plotlyjs
+from typing import Optional
+
+
+def _pretty_indicator_name(column: str) -> str:
+    mapping = {
+        "ma": "均线MA",
+        "ma_short": "短均线",
+        "ma_long": "长均线",
+        "slope": "均线斜率",
+        "channel_high": "通道高点",
+        "channel_low": "通道低点",
+        "trend_high": "趋势上轨",
+        "trend_low": "趋势下轨",
+        "entry_high": "入场高点",
+        "entry_low": "入场低点",
+        "exit_high": "出场高点",
+        "exit_low": "出场低点",
+        "long_entry": "多头入场线",
+        "long_exit": "多头出场线",
+        "short_entry": "空头入场线",
+        "short_exit": "空头出场线",
+        "upper_band": "上轨",
+        "lower_band": "下轨",
+        "n_high": "N周期高点",
+        "n_low": "N周期低点",
+        "vwma1": "VWMA1",
+        "vwma2": "VWMA2",
+        "vwma3": "VWMA3",
+        "vwma1_locked_long": "锁定均线(多)",
+        "vwma1_locked_short": "锁定均线(空)",
+        "obv": "OBV",
+        "maobv": "MAOBV",
+        "expma_short": "短EXPMA",
+        "expma_long": "长EXPMA",
+        "ema_20": "EMA20",
+        "ema_50": "EMA50",
+    }
+    if column in mapping:
+        return mapping[column]
+    upper = column.upper()
+    if upper.startswith("EMA_"):
+        return upper.replace("_", "")
+    if upper.startswith("EXPMA_"):
+        return upper.replace("_", "")
+    if upper.startswith("VWMA"):
+        return upper
+    return column
+
+
+def _dynamic_price_overlay_specs(bars: pd.DataFrame) -> list[tuple[str, str, str, float, Optional[str]]]:
+    specs: list[tuple[str, str, str, float, Optional[str]]] = []
+    seen: set[str] = set()
+
+    fixed_specs = [
+        ("vwma1", "VWMA1", "#2563eb", 1.25, None),
+        ("vwma2", "VWMA2", "#7c3aed", 1.25, None),
+        ("vwma3", "VWMA3", "#0f766e", 1.25, None),
+        ("vwma1_locked_long", "锁定均线(多)", "#dc2626", 1.15, "dash"),
+        ("vwma1_locked_short", "锁定均线(空)", "#16a34a", 1.15, "dash"),
+        ("n_high", "N周期高点", "#f97316", 1.0, "dot"),
+        ("n_low", "N周期低点", "#0891b2", 1.0, "dot"),
+    ]
+    for item in fixed_specs:
+        if item[0] in bars.columns:
+            specs.append(item)
+            seen.add(item[0])
+
+    palette = ["#2563eb", "#7c3aed", "#0f766e", "#e11d48", "#ea580c", "#0891b2", "#65a30d", "#475569"]
+
+    ma_like = []
+    band_like = []
+    ignore = {
+        "open", "high", "low", "close", "volume", "open_interest", "signal_raw", "exit_signal",
+        "position_state", "filter_pass", "strategy_k", "strategy_trade_extreme", "bars_held",
+        "obv", "maobv", "slope", "vwma1_slope", "vwma2_slope", "vwma3_slope", "tr"
+    }
+    for column in bars.columns:
+        if column in seen or column in ignore:
+            continue
+        lower = str(column).lower()
+        if lower in {"stop_price", "strategy_stop_price"}:
+            continue
+        if any(token in lower for token in ["_slope", "reason", "date", "error"]):
+            continue
+        if any(token in lower for token in ["ma", "ema", "expma", "vwma"]) and lower not in {"maobv"}:
+            ma_like.append(column)
+            continue
+        if any(token in lower for token in ["channel_", "trend_", "entry_", "exit_", "_band", "long_entry", "long_exit", "short_entry", "short_exit"]):
+            band_like.append(column)
+
+    for i, column in enumerate(ma_like):
+        specs.append((column, _pretty_indicator_name(column), palette[i % len(palette)], 1.2, None))
+        seen.add(column)
+    for i, column in enumerate(band_like):
+        specs.append((column, _pretty_indicator_name(column), palette[(i + len(ma_like)) % len(palette)], 1.0, "dot"))
+        seen.add(column)
+
+    return specs
 
 def plot_backtest(result: dict, title: str = "回测结果") -> go.Figure:
     """
@@ -17,9 +115,14 @@ def plot_backtest(result: dict, title: str = "回测结果") -> go.Figure:
     stats = result["stats"]
 
     # ── 子图布局 ──
+    # 主图只放价格同量纲信息；OBV、权益和回撤放副图，避免把K线纵轴压扁。
     fig = make_subplots(
-        rows=1, cols=1,
-        subplot_titles=("K线、均线、突破、入场、出场与止损线",),
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.035,
+        row_heights=[0.62, 0.18, 0.20],
+        specs=[[{"secondary_y": False}], [{"secondary_y": False}], [{"secondary_y": True}]],
+        subplot_titles=("价格执行图：K线、均线、突破、入场、出场与止损线", "动能确认图：OBV 与 MAOBV", "绩效图：权益曲线与回撤"),
     )
 
     # ── 第1行：K线 ──
@@ -53,17 +156,17 @@ def plot_backtest(result: dict, title: str = "回测结果") -> go.Figure:
             x=bars["date"], y=series,
             mode="lines", name=name,
             line=dict(color=color, width=width, dash=dash),
+            meta={"price_overlay": row == 1, "source_column": column},
             hovertemplate=f"{name}<br>%{{x}}<br>%{{y:.2f}}<extra></extra>",
         ), row=row, col=1)
 
-    # 策略核心变量：均线策略必须直接展示均线，否则研究员只能看到结果，看不到原因。
-    add_line_if_exists("vwma1", "VWMA1", "#2563eb", 1.25)
-    add_line_if_exists("vwma2", "VWMA2", "#7c3aed", 1.25)
-    add_line_if_exists("vwma3", "VWMA3", "#0f766e", 1.25)
-    add_line_if_exists("vwma1_locked_long", "锁定均线(多)", "#dc2626", 1.15, "dash")
-    add_line_if_exists("vwma1_locked_short", "锁定均线(空)", "#16a34a", 1.15, "dash")
-    add_line_if_exists("n_high", "N周期高点", "#f97316", 1.0, "dot")
-    add_line_if_exists("n_low", "N周期低点", "#0891b2", 1.0, "dot")
+    # 主图按当前策略实际产出的列自适应绘制均线、通道和关键执行价位。
+    for column, name, color, width, dash in _dynamic_price_overlay_specs(bars):
+        add_line_if_exists(column, name, color, width, dash)
+
+    # ── 第2行：非价格量纲的成交量动能指标 ──
+    add_line_if_exists("obv", "OBV", "#475569", 1.1, None, row=2)
+    add_line_if_exists("maobv", "MAOBV", "#0ea5e9", 1.2, None, row=2)
 
     # 入场信号点：只使用真实交易明细，不使用持仓过程中的 entry_price 列。
     # bars["entry_price"] 在持仓期间会持续记录当前持仓成本，直接绘制会形成一条密集红带。
@@ -76,6 +179,7 @@ def plot_backtest(result: dict, title: str = "回测结果") -> go.Figure:
                 x=long_entries["entry_date"], y=long_entries["entry_price"],
                 mode="markers", marker=dict(symbol="triangle-up", size=12, color="#d32f2f", opacity=0.92, line=dict(width=1, color="#ffffff")),
                 name="多头入场",
+                meta={"price_overlay": False},
                 customdata=np.stack([long_entries.get("exit_reason", pd.Series("", index=long_entries.index)), long_entries.get("net_pnl", pd.Series(0, index=long_entries.index))], axis=-1),
                 hovertemplate="多头入场<br>%{x}<br>价格=%{y:.2f}<br>退出=%{customdata[0]}<br>净盈亏=%{customdata[1]:,.2f}<extra></extra>",
             ), row=1, col=1)
@@ -84,6 +188,7 @@ def plot_backtest(result: dict, title: str = "回测结果") -> go.Figure:
                 x=short_entries["entry_date"], y=short_entries["entry_price"],
                 mode="markers", marker=dict(symbol="triangle-down", size=12, color="#2e7d32", opacity=0.92, line=dict(width=1, color="#ffffff")),
                 name="空头入场",
+                meta={"price_overlay": False},
                 customdata=np.stack([short_entries.get("exit_reason", pd.Series("", index=short_entries.index)), short_entries.get("net_pnl", pd.Series(0, index=short_entries.index))], axis=-1),
                 hovertemplate="空头入场<br>%{x}<br>价格=%{y:.2f}<br>退出=%{customdata[0]}<br>净盈亏=%{customdata[1]:,.2f}<extra></extra>",
             ), row=1, col=1)
@@ -95,6 +200,7 @@ def plot_backtest(result: dict, title: str = "回测结果") -> go.Figure:
                 mode="markers",
                 marker=dict(symbol="x", size=11, color=exit_colors, line=dict(width=2)),
                 name="出场",
+                meta={"price_overlay": False},
                 customdata=np.stack([exits.get("exit_reason", pd.Series("", index=exits.index)), exits.get("bars_held", pd.Series(0, index=exits.index)), exits.get("net_pnl", pd.Series(0, index=exits.index))], axis=-1),
                 hovertemplate="出场<br>%{x}<br>价格=%{y:.2f}<br>原因=%{customdata[0]}<br>持仓=%{customdata[1]}根K线<br>净盈亏=%{customdata[2]:,.2f}<extra></extra>",
             ), row=1, col=1)
@@ -107,16 +213,40 @@ def plot_backtest(result: dict, title: str = "回测结果") -> go.Figure:
                 x=bars["date"], y=stop_series,
                 mode="lines", name="止损线",
                 line=dict(color="#f59e0b", width=1.4, dash="dot"),
+                meta={"price_overlay": True, "source_column": stop_col},
                 hovertemplate="止损线<br>%{x}<br>%{y:.2f}<extra></extra>",
             ), row=1, col=1)
 
+    # ── 第3行：绩效曲线 ──
+    equity = result.get("equity_curve", pd.DataFrame()).copy()
+    if not equity.empty and {"date", "equity"}.issubset(equity.columns):
+        equity["date"] = pd.to_datetime(equity["date"], errors="coerce")
+        equity["equity"] = pd.to_numeric(equity["equity"], errors="coerce")
+        equity = equity.dropna(subset=["date", "equity"])
+        if len(equity) > 0:
+            peak = equity["equity"].cummax().replace(0, np.nan)
+            drawdown = (equity["equity"] / peak - 1) * 100
+            fig.add_trace(go.Scatter(
+                x=equity["date"], y=equity["equity"],
+                mode="lines", name="权益曲线",
+                line=dict(color="#2563eb", width=1.4),
+                hovertemplate="权益曲线<br>%{x}<br>%{y:,.2f}<extra></extra>",
+            ), row=3, col=1, secondary_y=False)
+            fig.add_trace(go.Scatter(
+                x=equity["date"], y=drawdown,
+                mode="lines", name="回撤",
+                line=dict(color="#16a34a", width=1.0),
+                fill="tozeroy",
+                fillcolor="rgba(22,163,74,0.10)",
+                hovertemplate="回撤<br>%{x}<br>%{y:.2f}%<extra></extra>",
+            ), row=3, col=1, secondary_y=True)
+
     # ── 布局设置 ──
     fig.update_layout(
-        title="K线与策略信号",
-        height=980,
-        xaxis_rangeslider_visible=True,
+        title="策略执行证据图",
+        height=1120,
         hovermode="closest",
-        margin=dict(l=54, r=30, t=92, b=34),
+        margin=dict(l=54, r=46, t=96, b=34),
         paper_bgcolor="#ffffff",
         plot_bgcolor="#ffffff",
         font=dict(family='-apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif', color="#243244"),
@@ -125,7 +255,7 @@ def plot_backtest(result: dict, title: str = "回测结果") -> go.Figure:
         modebar=dict(orientation="h"),
     )
 
-    fig.update_xaxes(showgrid=False, zeroline=False, rangeslider_thickness=0.06)
+    fig.update_xaxes(showgrid=False, zeroline=False, rangeslider_visible=False)
     fig.update_xaxes(
         rangeselector=dict(
             buttons=[
@@ -141,9 +271,15 @@ def plot_backtest(result: dict, title: str = "回测结果") -> go.Figure:
         row=1,
         col=1,
     )
+    fig.update_xaxes(rangeslider_visible=True, rangeslider_thickness=0.045, row=3, col=1)
     fig.update_yaxes(showgrid=True, gridcolor="#eef3f8", zeroline=False)
     fig.update_yaxes(title_text="价格", row=1, col=1)
-    fig.update_yaxes(nticks=12, row=1, col=1)
+    fig.update_yaxes(title_text="OBV", row=2, col=1)
+    fig.update_yaxes(title_text="权益", row=3, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="回撤%", row=3, col=1, secondary_y=True)
+    fig.update_yaxes(nticks=10, row=1, col=1)
+    fig.update_yaxes(nticks=4, row=2, col=1)
+    fig.update_yaxes(nticks=4, row=3, col=1)
     fig.update_traces(hoverinfo="none")
 
     return fig
@@ -422,7 +558,7 @@ def save_report(result: dict, output_path: str = None):
             seen = set()
             html += '<section class="section"><h2>逐笔交易证据</h2>'
             html += '<p class="hint">点击表格行可在下方K线图定位这笔交易；红色代表盈利，绿色代表亏损。</p>'
-            html += '<table class="trade-evidence" id="tradeEvidence"><thead><tr><th>样本</th><th>方向</th><th>入场</th><th>出场</th><th>退出原因</th><th>手数</th><th>成本</th><th>净盈亏</th></tr></thead><tbody>'
+            html += '<table class="trade-evidence" id="tradeEvidence"><thead><tr><th>样本</th><th>方向</th><th>入场</th><th>出场</th><th>退出原因</th><th>仓位模型</th><th>手数</th><th>成本</th><th>净盈亏</th></tr></thead><tbody>'
             for label, row in picks:
                 key = (str(row.get("entry_date")), str(row.get("exit_date")), float(row.get("net_pnl", 0) or 0))
                 if key in seen:
@@ -439,6 +575,7 @@ def save_report(result: dict, output_path: str = None):
                     f'<td>{entry_date}<br>{float(row.get("entry_price", 0) or 0):.2f}</td>'
                     f'<td>{exit_date}<br>{float(row.get("exit_price", 0) or 0):.2f}</td>'
                     f'<td>{h(exit_label(row.get("exit_reason", "")))}</td>'
+                    f'<td>{h(row.get("sizing_model", "fixed"))}</td>'
                     f'<td>{h(row.get("position_size", ""))}</td>'
                     f'<td>{float(row.get("economic_cost", row.get("total_cost", row.get("fee", 0))) or 0):,.2f}</td>'
                     f'<td class="{pnl_cls}">{pnl:,.2f}</td></tr>'
@@ -578,8 +715,10 @@ def save_report(result: dict, output_path: str = None):
           return String(trace.name || "");
         }}
         function isPriceOverlay(trace){{
+          if(!trace) return false;
+          if(trace.meta && trace.meta.price_overlay === true) return true;
           const name = traceName(trace);
-          return ["VWMA1","VWMA2","VWMA3","锁定均线(多)","锁定均线(空)","N周期高点","N周期低点"].indexOf(name) >= 0;
+          return ["VWMA1","VWMA2","VWMA3","锁定均线(多)","锁定均线(空)","N周期高点","N周期低点","止损线"].indexOf(name) >= 0;
         }}
         function autoscalePriceAxis(){{
           if(autoscaling || !chart.data) return;
@@ -705,8 +844,7 @@ def save_report(result: dict, output_path: str = None):
           }}
           const value = traceValue(trace, i);
           const name = traceName(trace) || "指标线";
-          const yaxis = trace.yaxis || "y";
-          const suffix = "价格图层";
+          const suffix = isPriceOverlay(trace) ? "价格图层" : "图层";
           const candleText = candle && candleIndex >= 0
             ? "<span>收 " + formatNumber(candle.close[candleIndex]) + "</span>"
             : "";

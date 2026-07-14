@@ -149,6 +149,18 @@ def _stage4_allows_stage5() -> dict:
     if not (strategy_dir / "check_report.md").exists():
         return {"ok": False, "error": "阶段4检查报告尚未生成，不能进入阶段5分析"}
 
+    spec = _load_strategy_spec(strategy_dir)
+    data_req = spec.get("data_requirements") if isinstance(spec.get("data_requirements"), dict) else {}
+    if data_req and not data_req.get("supported_by_default_backtest", True):
+        reasons = data_req.get("reasons") or []
+        detail = "；".join(str(item) for item in reasons[:3])
+        return {
+            "ok": False,
+            "error": "阶段4识别出数据口径阻断，不能进入阶段5。"
+            + detail
+            + " 请先接入对应频率数据，或在阶段1明确改为日线近似验证版本。",
+        }
+
     evidence = _latest_backtest_evidence(sid)
     summary = evidence.get("summary", {}) if isinstance(evidence, dict) else {}
     gate = summary.get("research_gate") if isinstance(summary.get("research_gate"), dict) else {}
@@ -569,6 +581,17 @@ def _extract_default_params(code: str) -> dict:
     params = {}
     for cls in [n for n in tree.body if isinstance(n, ast.ClassDef)]:
         for fn in [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "__init__"]:
+            local_dicts = {}
+            for stmt in fn.body:
+                if (
+                    isinstance(stmt, ast.Assign)
+                    and len(stmt.targets) == 1
+                    and isinstance(stmt.targets[0], ast.Name)
+                    and isinstance(stmt.value, ast.Dict)
+                ):
+                    parsed = _literal_default(stmt.value)
+                    if isinstance(parsed, dict):
+                        local_dicts[stmt.targets[0].id] = parsed
             for node in ast.walk(fn):
                 if not isinstance(node, ast.Call):
                     continue
@@ -582,6 +605,17 @@ def _extract_default_params(code: str) -> dict:
                 key = node.args[0].value
                 default = _literal_default(node.args[1]) if len(node.args) > 1 else None
                 params[key] = default
+            for node in ast.walk(fn):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "update"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in local_dicts
+                ):
+                    params.update(local_dicts[node.func.value.id])
+            if "default_params" in local_dicts and not params:
+                params.update(local_dicts["default_params"])
     return params
 
 def _load_strategy_spec(strategy_dir: Optional[Path]) -> dict:
@@ -690,6 +724,16 @@ def _validate_strategy_code(code: str, params: dict, strategy_dir: Optional[Path
         raise ValueError("signal_raw 只能取值 -1、0、1")
     if "_error" in result.columns and result["_error"].dropna().astype(str).str.len().gt(0).any():
         raise ValueError(f"策略 dry-run 报错: {result['_error'].dropna().iloc[0]}")
+    unit_error_patterns = [
+        r"fixed_amplitude\s*=\s*entry_price\s*\*\s*self\.fixed_amplitude_pct[\s\S]{0,400}?trade_extreme\s*\*\s*\(\s*1\s*[-+]\s*fixed_amplitude\s*\*",
+        r"amplitude\s*=\s*entry_price\s*\*\s*self\.[A-Za-z_]*(?:pct|rate|ratio)[\s\S]{0,400}?trade_extreme\s*\*\s*\(\s*1\s*[-+]\s*amplitude\s*\*",
+    ]
+    if any(re.search(pattern, code) for pattern in unit_error_patterns):
+        raise ValueError(
+            "阶段2代码存在止损单位错误：已经把入场价乘百分比得到价格幅度，"
+            "后续又把该价格幅度当成百分比乘到 trade_extreme 上。"
+            "请改为 trade_extreme - fixed_amount * k，或直接使用 initial_stop_pct * k 作为百分比。"
+        )
     if re.search(r"df\.loc\[[^\]]*conflict[^\]]*,\s*['\"]exit_signal['\"]\]\s*=\s*0", code):
         raise ValueError("冲突信号处理错误：普通入场与只平仓冲突时应优先保留 exit_signal，并将 signal_raw 置0")
     risky_state = []

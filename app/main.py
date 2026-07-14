@@ -66,6 +66,24 @@ def _infer_strategy_display_name(strategy_dir: Path, fallback: str) -> str:
         pass
     return fallback
 
+def _safe_report_prefix(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]+", "_", value or "").strip("_")
+
+def _find_strategy_reports(report_dir: Path, sid: str, scope: str = "") -> list[Path]:
+    if not report_dir.exists():
+        return []
+    patterns = [f"{sid}_*_backtest.html"]
+    safe_sid = _safe_report_prefix(sid)
+    if safe_sid and safe_sid != sid:
+        patterns.append(f"{safe_sid}_*_backtest.html")
+    seen_reports = {}
+    for pattern in patterns:
+        for rp in report_dir.glob(pattern):
+            if scope == "complete" and rp.name.startswith(f"{sid}_iter_"):
+                continue
+            seen_reports[str(rp)] = rp
+    return sorted(seen_reports.values(), key=lambda p: p.stat().st_mtime, reverse=True)
+
 def get_strategy_info():
     from engine.strategy_manager import get_active, get_active_scope, get_strategy_dir, is_complete_strategy, list_strategies, load_params, set_active
     sid = get_active()
@@ -92,6 +110,7 @@ def get_strategy_info():
     readme = (sd / "README.md").read_text(encoding="utf-8") if (sd / "README.md").exists() else ""
     check_report = (sd / "check_report.md").read_text(encoding="utf-8") if (sd / "check_report.md").exists() else ""
     analysis_template = (sd / "analysis_template.md").read_text(encoding="utf-8") if (sd / "analysis_template.md").exists() else ""
+    multi_symbol_validation = (sd / "multi_symbol_validation.md").read_text(encoding="utf-8") if (sd / "multi_symbol_validation.md").exists() else ""
     strategy_spec = {}
     spec_path = sd / "strategy_spec.json"
     readme_path = sd / "README.md"
@@ -123,7 +142,7 @@ def get_strategy_info():
     latest_report = None
     report_stats = None
     data_files = {}
-    reports = sorted(report_dir.glob(f"{sid}_*_backtest.html"), key=lambda p: p.stat().st_mtime, reverse=True) if report_dir.exists() else []
+    reports = _find_strategy_reports(report_dir, sid, scope)
     if reports:
         rp = reports[0]
         latest_report = f"/reports/web/{rp.name}"
@@ -133,19 +152,32 @@ def get_strategy_info():
             fp = report_dir / f"{stem}{suffix}"
             if fp.exists():
                 data_files[key] = f"/reports/web/{fp.name}"
+    version_complete = bool(
+        scope == "complete"
+        or (
+            scope == "draft"
+            and iteration
+            and latest_report
+            and check_report
+            and analysis_template
+        )
+    )
     iteration_suggestions = _iteration_suggestions(report_stats or {})
-    iteration_compare = _iteration_compare(sid, iteration, report_dir) if iteration else {}
+    iteration_compare = _iteration_compare(sid, scope, iteration, report_dir) if iteration else {}
     return {
         "name": meta.get("name") or sid,
         "active": sid,
         "scope": scope,
         "complete": is_complete_strategy(sid),
+        "version_complete": version_complete,
+        "can_iterate": version_complete,
         "meta": meta,
         "params": params,
         "code": code,
         "readme": readme,
         "check_report": check_report,
         "analysis_template": analysis_template,
+        "multi_symbol_validation": multi_symbol_validation,
         "strategy_spec": strategy_spec,
         "iteration": iteration,
         "symbols": symbols,
@@ -157,20 +189,23 @@ def get_strategy_info():
     }
 
 
-def _latest_strategy_stats(sid: str, report_dir: Path) -> dict:
-    reports = sorted(report_dir.glob(f"{sid}_*_backtest.html"), key=lambda p: p.stat().st_mtime, reverse=True) if report_dir.exists() else []
+def _latest_strategy_stats(sid: str, report_dir: Path, scope: str = "complete") -> dict:
+    reports = _find_strategy_reports(report_dir, sid, scope)
     if not reports:
         return {}
     stem = reports[0].name.replace("_backtest.html", "")
     return summarize_report(report_dir, stem) or {}
 
 
-def _iteration_compare(sid: str, iteration: dict, report_dir: Path) -> dict:
-    parent = iteration.get("parent_strategy") if isinstance(iteration, dict) else ""
+def _iteration_compare(sid: str, scope: str, iteration: dict, report_dir: Path) -> dict:
+    if not isinstance(iteration, dict):
+        return {}
+    parent = iteration.get("parent_version_id") or iteration.get("parent_strategy")
+    parent_scope = iteration.get("parent_version_scope") or "complete"
     if not parent:
         return {}
-    child_stats = _latest_strategy_stats(sid, report_dir)
-    parent_stats = _latest_strategy_stats(parent, report_dir)
+    child_stats = _latest_strategy_stats(sid, report_dir, scope)
+    parent_stats = _latest_strategy_stats(parent, report_dir, parent_scope)
     if not child_stats or not parent_stats:
         return {"parent_strategy": parent, "status": "等待父子版本均完成回测"}
     keys = ["total_return_pct", "net_profit", "max_drawdown_pct", "sharpe_ratio", "total_trades", "payoff_ratio"]
@@ -251,10 +286,28 @@ def save_params(new_params: dict):
 def run_backtest(symbol: str, params_override: dict = None):
     from engine.data import get_main_contract_data, describe_data_policy
     from engine.backtest import BacktestEngine
-    from engine.strategy_manager import load_module, get_active, load_params
+    from engine.strategy_manager import load_module, get_active, get_active_scope, get_strategy_dir, load_params
     import numpy as np
     import re
     sid = get_active()
+    strategy_dir = get_strategy_dir(sid, get_active_scope())
+    spec_path = strategy_dir / "strategy_spec.json"
+    if spec_path.exists():
+        try:
+            spec = json.loads(spec_path.read_text(encoding="utf-8"))
+            data_req = spec.get("data_requirements") if isinstance(spec.get("data_requirements"), dict) else {}
+            if data_req and not data_req.get("supported_by_default_backtest", True):
+                required = data_req.get("required_frequency", "unknown")
+                reasons = data_req.get("reasons") or []
+                detail = "；".join(str(item) for item in reasons[:3])
+                raise ValueError(
+                    f"当前策略需要 {required} 数据，平台默认阶段三只提供日线回测。"
+                    f"{detail} 请先接入对应频率数据，或在阶段一明确改成日线近似验证版本。"
+                )
+        except ValueError:
+            raise
+        except Exception:
+            pass
     StrategyClass = load_module(sid)
     base = load_params(sid)
     if params_override: base.update(params_override)
@@ -432,6 +485,7 @@ class ArtifactSaveRequest(BaseModel):
 class CompleteStrategyRequest(BaseModel): name: str = ""
 class IterationRequest(BaseModel):
     parent_strategy: str = ""
+    parent_scope: str = "complete"
     iteration_type: str = "free_edit"
     note: str = ""
     name: str = ""
@@ -633,11 +687,25 @@ async def api_strategies():
         },
     )
 
+@app.get("/api/strategy-drafts")
+async def api_strategy_drafts():
+    from engine.strategy_manager import list_draft_strategies
+    return JSONResponse(
+        list_draft_strategies(),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
 @app.post("/api/strategy/switch")
-async def api_switch_strategy(id: str):
+async def api_switch_strategy(id: str, scope: str = "complete"):
     from engine.strategy_manager import set_active
     from app.chat import set_stage
-    set_active(id, "complete"); set_stage(1); return {"status": "ok", "active": id, "stage": 1}
+    set_active(id, scope if scope in {"complete", "draft"} else None)
+    set_stage(1)
+    return {"status": "ok", "active": id, "scope": scope, "stage": 1}
 
 @app.delete("/api/strategy/{strategy_id}")
 async def api_delete_strategy(strategy_id: str):
@@ -673,6 +741,7 @@ async def api_create_iteration(req: IterationRequest):
             iteration_type=req.iteration_type,
             note=req.note,
             name=req.name,
+            parent_scope=req.parent_scope,
         )
         set_stage(1)
         result["stage"] = 1
